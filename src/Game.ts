@@ -144,7 +144,7 @@ export class Game {
   }
 
   private setupLighting(): THREE.DirectionalLight {
-    const ambient = new THREE.HemisphereLight(0xcfe0ff, 0x4a4632, 2.4);
+    const ambient = new THREE.HemisphereLight(0x8ecdf0, 0x3f6b2a, 2.4);
     this.scene.add(ambient);
     const fill = new THREE.AmbientLight(0xffffff, 0.5);
     this.scene.add(fill);
@@ -158,7 +158,7 @@ export class Game {
     sun.shadow.camera.far = 80;
     sun.shadow.bias = -0.0025;
     this.scene.add(sun);
-    this.scene.background = new THREE.Color(0x6f88ad);
+    this.scene.background = new THREE.Color(GameConfig.skyColor);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
     return sun;
@@ -214,6 +214,7 @@ export class Game {
     this.combat.update(dt, allChars, this.stage.destructibles);
     this.stage.removeDestroyed();
 
+    this.resolvePlatformCollisions();
     this.resolveObstacleCollisions();
     this.resolveCharacterCollisions();
     this.checkFalls();
@@ -251,6 +252,40 @@ export class Game {
       wantDash: this.input.dashHeld,
       wantDodge: this.input.consumeJustPressed("dodge"),
     };
+  }
+
+  /**
+   * Platforms only affect standing height (see Stage.getGroundHeightAt), so without this a
+   * character below the top surface can walk straight through the solid side of a platform box.
+   * Pushes them back out along whichever edge is closest instead.
+   */
+  private resolvePlatformCollisions(): void {
+    for (const f of this.fighters) {
+      const c = f.character;
+      if (!c.alive) continue;
+      for (const p of this.stage.platforms) {
+        if (c.position.y >= p.topY - 0.4) continue;
+        if (
+          c.position.x + c.radius <= p.minX ||
+          c.position.x - c.radius >= p.maxX ||
+          c.position.z + c.radius <= p.minZ ||
+          c.position.z - c.radius >= p.maxZ
+        ) {
+          continue;
+        }
+
+        const pushLeft = c.position.x + c.radius - p.minX;
+        const pushRight = p.maxX - (c.position.x - c.radius);
+        const pushNeg = c.position.z + c.radius - p.minZ;
+        const pushPos = p.maxZ - (c.position.z - c.radius);
+        const minPush = Math.min(pushLeft, pushRight, pushNeg, pushPos);
+
+        if (minPush === pushLeft) c.position.x = p.minX - c.radius;
+        else if (minPush === pushRight) c.position.x = p.maxX + c.radius;
+        else if (minPush === pushNeg) c.position.z = p.minZ - c.radius;
+        else c.position.z = p.maxZ + c.radius;
+      }
+    }
   }
 
   private resolveObstacleCollisions(): void {
@@ -474,7 +509,7 @@ export class Game {
     this.renderer.shadowMap.enabled = q.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.sunLight.castShadow = q.shadows;
-    this.scene.fog = new THREE.Fog(0x6f88ad, 40, q.drawDistance);
+    this.scene.fog = new THREE.Fog(GameConfig.skyColor, 40, q.drawDistance);
     this.cameraController.camera.far = q.drawDistance + 30;
     this.cameraController.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight, true);

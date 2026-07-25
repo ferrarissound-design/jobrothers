@@ -22,6 +22,40 @@ function mat(color: number, roughness = 0.8, metalness = 0.1): THREE.MeshStandar
   return new THREE.MeshStandardMaterial({ color, roughness, metalness });
 }
 
+/** Procedural meadow texture: a green base speckled with grass-blade strokes, tiled across the ground. */
+function createGrassTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#4f9c3f";
+  ctx.fillRect(0, 0, size, size);
+
+  for (let i = 0; i < 1200; i++) {
+    const x = Math.random() * size;
+    const y = Math.random() * size;
+    const light = Math.random() > 0.5;
+    ctx.fillStyle = light
+      ? `rgba(150,220,110,${0.15 + Math.random() * 0.25})`
+      : `rgba(30,80,25,${0.15 + Math.random() * 0.25})`;
+    const w = 1 + Math.random() * 2;
+    const h = 3 + Math.random() * 5;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.random() * Math.PI);
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.restore();
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(10, 10);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 /**
  * "ジョー・ジャンクション" — a scrapyard/factory arena. Builds the ground,
  * a couple of raised step platforms, background scrap-junk dressing, and
@@ -68,14 +102,15 @@ export class Stage {
 
   private buildGround(quality: QualitySettings): void {
     const groundGeo = new THREE.CylinderGeometry(this.arenaRadius, this.arenaRadius, 1, 32);
-    const ground = new THREE.Mesh(groundGeo, mat(0x54544f, 0.95, 0.05));
+    const groundMat = new THREE.MeshStandardMaterial({ map: createGrassTexture(), roughness: 0.95, metalness: 0 });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.position.y = -0.5;
     ground.receiveShadow = quality.shadows;
     this.group.add(ground);
 
-    // subtle panel seams for visual interest without extra geometry cost
+    // a worn dirt ring for visual interest without extra geometry cost
     const ringGeo = new THREE.RingGeometry(this.arenaRadius * 0.55, this.arenaRadius * 0.57, 48);
-    const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x3d3d38, side: THREE.DoubleSide }));
+    const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x3d7a34, side: THREE.DoubleSide }));
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.001;
     this.group.add(ring);
