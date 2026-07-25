@@ -47,8 +47,26 @@ export class CPUController {
     return this.targetId;
   }
 
+  /** Drops decisions and held inputs that belonged to the previous match. */
+  reset(): void {
+    this.intent = emptyIntent();
+    this.targetId = null;
+    this.reactingToKey = null;
+    this.reactionTimer = 0;
+    this.decisionTimer = 0;
+  }
+
   update(dt: number, self: Character, others: Character[], stage: Stage): CharacterIntent {
     if (!self.alive) return emptyIntent();
+
+    // Button presses are pulses, not held inputs. Clear them before making this
+    // frame's decisions so an old jump/attack cannot fire later after landing,
+    // leaving hitstun, or waiting for a cooldown to expire.
+    this.intent.wantJump = false;
+    this.intent.wantLight = false;
+    this.intent.wantHeavy = false;
+    this.intent.wantSpecial = false;
+    this.intent.wantDodge = false;
 
     const cfg = AI_PERSONALITIES[this.personality];
     const alive = others.filter((o) => o.alive);
@@ -72,10 +90,6 @@ export class CPUController {
     this.targetId = target?.instanceId ?? null;
 
     this.intent.wantDash = false;
-    this.intent.wantSpecial = false;
-    this.intent.wantHeavy = false;
-    this.intent.wantLight = false;
-
     if (!target) return;
 
     const dist = horizontalDistance(self.position, target.position);
