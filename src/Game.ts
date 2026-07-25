@@ -225,7 +225,7 @@ export class Game {
     const yaw = this.cameraController.yaw;
 
     const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    const right = new THREE.Vector3(-Math.cos(yaw), 0, Math.sin(yaw));
     const moveWorld = new THREE.Vector3()
       .addScaledVector(right, this.input.moveX)
       .addScaledVector(forward, this.input.moveY);
