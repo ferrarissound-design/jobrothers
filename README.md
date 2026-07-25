@@ -5,8 +5,12 @@
 ことをコンセプトに、衣装・名称・体型・技・設定はすべて独自のオリジナルとしています。
 
 外部の著作権素材（画像・音源・3Dモデル）は一切使用していません。キャラクターは
-Three.jsの基本図形（Box / Sphere / Cylinder / Cone）を組み合わせた自作ローポリモデル、
+Three.jsの基本図形（Box / Sphere / Cylinder / Cone / Capsule）を組み合わせた自作モデル、
 効果音はすべてWeb Audio APIによる生成音です。
+
+キャラクターモデルは人体比率にもとづく骨格の上に組み立てており、肩と股関節を支点に
+動き、肘と膝で曲がる二節構造の四肢を持ちます。表情（目・眉・鼻・口）、衣服の縫い目や
+装備といったディテールもすべて基本図形で作っています。
 
 ## 起動方法
 
@@ -162,7 +166,8 @@ src/
     characterData.ts         キャラクター数値データ
     attacks.ts                攻撃（通常/強/必殺技）の数値データ
     abilities.ts               必殺技の特殊挙動の定数
-    characterMeshFactory.ts    低ポリモデル生成
+    meshKit.ts                 モデル用のマテリアル/形状/骨格ヘルパー
+    characterMeshFactory.ts    キャラクターモデル生成
     Character.ts               キャラクターの状態・メッシュ保持クラス
     CharacterController.ts     移動/攻撃/ガード/回避のステートマシン
   ai/

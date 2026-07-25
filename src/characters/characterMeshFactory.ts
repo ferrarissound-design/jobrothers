@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { CharacterDef } from "./characterData";
+import { bakeLimb, bakeStatic, humanProportions, ModelKit, noShadow, type Limb } from "./meshKit";
 
 export interface CharacterParts {
   root: THREE.Group;
@@ -13,33 +14,17 @@ export interface CharacterParts {
   extra?: THREE.Object3D; // tail / fin / backpack etc.
 }
 
-function mat(color: number, roughness = 0.7): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness, metalness: 0.08 });
-}
-
-function box(w: number, h: number, d: number, color: number): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
-}
-
-function cyl(r1: number, r2: number, h: number, color: number, seg = 8): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(r1, r2, h, seg), mat(color));
-  m.castShadow = true;
-  return m;
-}
-
-function sph(r: number, color: number): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), mat(color));
-  m.castShadow = true;
-  return m;
-}
-
 /**
- * Builds a low-poly, primitive-based character model. All four designs are
- * original silhouettes (no copyrighted assets), only loosely evoking a
+ * Builds a character model out of Three.js primitives — no external assets.
+ *
+ * Every fighter is assembled on an anatomically proportioned skeleton scaled to
+ * its `stats.height`, with capsule limbs that pivot at the shoulder and hip and
+ * bend at the elbow and knee, so the walk and swing animations move joints that
+ * actually exist. The designs stay original silhouettes that only evoke a
  * "plumber", "electric rodent", "speedster" and "cardboard soldier" archetype.
+ *
+ * Arms and legs are named from the character's own point of view: the right
+ * limb sits on -X, which is screen-left while the fighter faces the camera.
  */
 export function createCharacterMesh(def: CharacterDef): CharacterParts {
   switch (def.id) {
@@ -54,269 +39,1043 @@ export function createCharacterMesh(def: CharacterDef): CharacterParts {
   }
 }
 
+/** Mirrors a limb built for the right side onto the left. */
+function mirrorLimb(limb: Limb): void {
+  limb.root.scale.x *= -1;
+}
+
+// ---------------------------------------------------------------------------
+// ジョリオ — stocky handyman: work shirt, denim overalls, cap, pipe wrench.
+// ---------------------------------------------------------------------------
+
 function buildJorio(def: CharacterDef): CharacterParts {
+  const kit = new ModelKit();
   const { primary, secondary, accent, skin } = def.palette;
+  const hair = 0x4a3222;
+  const glove = 0xe4ded2;
+  const boot = 0x4a3524;
+
+  const H = def.stats.height;
+  const p = humanProportions(H);
   const root = new THREE.Group();
 
-  const legHeight = 0.55;
-  const body = box(0.62, 0.68, 0.4, primary);
-  body.position.y = legHeight + 0.34;
+  // --- torso (local origin at the hip joint) ---
+  const body = new THREE.Group();
+  body.position.y = p.hip;
   root.add(body);
 
-  const belt = box(0.66, 0.12, 0.42, 0x2b2b2b);
-  belt.position.y = legHeight + 0.05;
-  root.add(belt);
+  const pelvis = kit.sphere(H * 0.112, secondary, "denim");
+  pelvis.scale.set(0.98, 0.66, 0.8);
+  pelvis.position.y = 0.02;
+  body.add(pelvis);
 
+  const abdomen = kit.sphere(H * 0.116, primary, "cloth");
+  abdomen.scale.set(0.94, 0.82, 0.72);
+  abdomen.position.y = p.waist - p.hip + 0.01;
+  body.add(abdomen);
+
+  const chest = kit.sphere(H * 0.128, primary, "cloth");
+  chest.scale.set(0.98, 0.84, 0.7);
+  chest.position.y = p.chest - p.hip + 0.03;
+  body.add(chest);
+
+  const traps = kit.sphere(H * 0.115, primary, "cloth", 12);
+  traps.scale.set(1.12, 0.42, 0.66);
+  traps.position.y = p.shoulder - p.hip - 0.01;
+  body.add(traps);
+
+  // denim bib + straps over the shirt
+  const bibTop = p.chest - p.hip + H * 0.075;
+  const bib = kit.box(H * 0.13, H * 0.19, 0.02, secondary, "denim");
+  bib.position.set(0, bibTop - H * 0.095, H * 0.086);
+  body.add(noShadow(bib));
+
+  for (const side of [-1, 1]) {
+    const strap = kit.box(H * 0.03, H * 0.075, 0.02, secondary, "denim");
+    strap.position.set(side * H * 0.05, bibTop + H * 0.025, H * 0.076);
+    strap.rotation.x = -0.3;
+    body.add(noShadow(strap));
+
+    const buckle = kit.box(H * 0.026, H * 0.022, 0.014, accent, "metal");
+    buckle.position.set(side * H * 0.05, bibTop - H * 0.005, H * 0.094);
+    body.add(noShadow(buckle));
+
+    // straps cross over on the back, the way real overalls are cut
+    const backStrap = kit.box(H * 0.03, H * 0.2, 0.02, secondary, "denim");
+    backStrap.position.set(0, p.chest - p.hip + H * 0.02, -H * 0.078);
+    backStrap.rotation.z = side * 0.42;
+    body.add(noShadow(backStrap));
+  }
+
+  const belt = kit.cylinder(H * 0.108, H * 0.108, H * 0.038, 0x2f2721, "leather", 16, true);
+  belt.scale.set(1, 1, 0.76);
+  belt.position.y = p.waist - p.hip - 0.04;
+  body.add(noShadow(belt));
+
+  const buckleMain = kit.box(H * 0.04, H * 0.032, 0.016, accent, "metal");
+  buckleMain.position.set(0, p.waist - p.hip - 0.04, H * 0.086);
+  body.add(noShadow(buckleMain));
+
+  const neck = kit.cylinder(H * 0.03, H * 0.034, H * 0.05, skin, "skin", 10);
+  neck.position.y = p.neck - p.hip - 0.02;
+  body.add(neck);
+
+  // --- head ---
+  const headY = (p.chin + p.crown) / 2;
+  const r = H * 0.072;
   const head = new THREE.Group();
-  head.position.y = legHeight + 0.68 + 0.28;
+  head.position.y = headY;
   root.add(head);
-  const face = sph(0.28, skin);
-  head.add(face);
-  const cap = cyl(0.3, 0.3, 0.14, primary);
-  cap.position.y = 0.2;
+
+  const skull = kit.sphere(r, skin, "skin", 16);
+  skull.scale.set(0.88, 1, 0.94);
+  head.add(skull);
+
+  const jaw = kit.sphere(r * 0.72, skin, "skin", 12);
+  jaw.scale.set(0.86, 0.72, 0.92);
+  jaw.position.set(0, -r * 0.42, r * 0.16);
+  head.add(noShadow(jaw));
+
+  const backHair = kit.sphere(r * 1.02, hair, "fur", 14);
+  backHair.scale.set(0.92, 0.86, 0.9);
+  backHair.position.set(0, -r * 0.08, -r * 0.1);
+  head.add(noShadow(backHair));
+
+  const nose = kit.sphere(r * 0.25, skin, "skin", 10);
+  nose.scale.set(0.9, 1.05, 1.3);
+  nose.position.set(0, -r * 0.18, r * 0.84);
+  head.add(noShadow(nose));
+
+  const mouth = kit.box(r * 0.34, r * 0.08, r * 0.12, 0x7a4038, "skin");
+  mouth.position.set(0, -r * 0.62, r * 0.76);
+  head.add(noShadow(mouth));
+
+  for (const side of [-1, 1]) {
+    const eye = kit.eye(r * 0.2, 0x4a6b3a);
+    eye.position.set(side * r * 0.42, r * 0.06, r * 0.78);
+    eye.rotation.y = side * 0.26;
+    head.add(eye);
+
+    const brow = kit.box(r * 0.34, r * 0.09, r * 0.09, hair, "fur");
+    brow.position.set(side * r * 0.42, r * 0.28, r * 0.8);
+    brow.rotation.z = side * -0.18;
+    head.add(noShadow(brow));
+
+    const ear = kit.sphere(r * 0.26, skin, "skin", 8);
+    ear.scale.set(0.4, 1, 0.7);
+    ear.position.set(side * r * 0.86, -r * 0.12, -r * 0.02);
+    head.add(noShadow(ear));
+
+    // bushy moustache, one half per side
+    const stache = kit.capsule(r * 0.11, r * 0.4, hair, "fur", 8);
+    stache.rotation.set(0.15, 0, side * 1.3);
+    stache.position.set(side * r * 0.2, -r * 0.42, r * 0.76);
+    head.add(noShadow(stache));
+  }
+
+  const cap = kit.dome(r * 1.05, primary, "cloth", 16);
+  cap.scale.set(0.95, 0.78, 1);
+  cap.position.y = r * 0.3;
   head.add(cap);
-  const capBrim = cyl(0.32, 0.32, 0.04, primary);
-  capBrim.position.set(0, 0.13, 0.18);
-  capBrim.scale.set(1, 1, 0.7);
-  head.add(capBrim);
-  const beard = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.16, 6), mat(0x3a2a1f));
-  beard.position.set(0, -0.2, 0.2);
-  beard.rotation.x = Math.PI;
-  head.add(beard);
 
-  const rightArm = new THREE.Group();
-  rightArm.position.set(-0.42, legHeight + 0.58, 0);
-  const rArmMesh = cyl(0.11, 0.1, 0.5, secondary);
-  rArmMesh.position.y = -0.25;
-  rightArm.add(rArmMesh);
-  root.add(rightArm);
+  // sweatband hides the dome's cut edge
+  const capBand = kit.cylinder(r * 1.06, r * 1.06, r * 0.16, primary, "cloth", 16, true);
+  capBand.scale.set(0.95, 1, 1);
+  capBand.position.y = r * 0.3;
+  head.add(noShadow(capBand));
 
-  const wrenchHead = box(0.22, 0.12, 0.08, accent);
-  wrenchHead.position.set(0, -0.55, 0);
-  const wrenchHandle = cyl(0.04, 0.04, 0.4, 0x777777);
-  wrenchHandle.position.set(0, -0.35, 0);
+  const brim = kit.halfDisc(r * 0.9, r * 0.07, primary, "cloth", 16);
+  brim.scale.set(1.06, 1, 1.5);
+  brim.position.set(0, r * 0.28, r * 0.34);
+  brim.rotation.x = 0.34;
+  head.add(brim);
+
+  const emblem = kit.cylinder(r * 0.24, r * 0.24, r * 0.06, accent, "plastic", 12);
+  emblem.rotation.x = Math.PI / 2;
+  emblem.position.set(0, r * 0.62, r * 0.76);
+  head.add(noShadow(emblem));
+
+  // --- limbs ---
+  const armUpper = H * 0.175;
+  const armLower = H * 0.15;
+  const arms: Limb[] = [];
+  for (const side of [-1, 1]) {
+    const arm = kit.limb({
+      upperLength: armUpper,
+      upperRadius: H * 0.036,
+      lowerLength: armLower,
+      lowerRadius: H * 0.031,
+      color: primary,
+      surface: "cloth",
+      lowerColor: skin,
+      lowerSurface: "skin",
+      bend: -0.3,
+    });
+    arm.root.position.set(side * H * 0.117, p.shoulder, 0);
+    arm.root.rotation.z = side * 0.1;
+
+    const hand = kit.sphere(H * 0.036, glove, "leather", 10);
+    hand.scale.set(0.85, 1.05, 0.95);
+    hand.position.y = -H * 0.026;
+    arm.tip.add(hand);
+
+    // rolled-up sleeve cuff where the shirt ends at the elbow
+    const cuff = kit.cylinder(H * 0.04, H * 0.038, H * 0.028, primary, "cloth", 10);
+    cuff.position.y = -armUpper * 0.9;
+    arm.root.add(noShadow(cuff));
+
+    root.add(arm.root);
+    arms.push(arm);
+  }
+  const rightArm = arms[0];
+  const leftArm = arms[1];
+  mirrorLimb(leftArm);
+
+  const thigh = p.hip - p.knee;
+  const shin = p.knee - p.ankle;
+  const legs: Limb[] = [];
+  for (const side of [-1, 1]) {
+    const leg = kit.limb({
+      upperLength: thigh,
+      upperRadius: H * 0.05,
+      lowerLength: shin,
+      lowerRadius: H * 0.04,
+      color: secondary,
+      surface: "denim",
+      lowerColor: secondary,
+      bend: 0.1,
+    });
+    leg.root.position.set(side * H * 0.055, p.hip, 0);
+
+    const bootShaft = kit.cylinder(H * 0.048, H * 0.045, H * 0.09, boot, "leather", 10);
+    bootShaft.position.y = -H * 0.03;
+    leg.tip.add(bootShaft);
+
+    const foot = kit.box(H * 0.062, H * 0.042, H * 0.115, boot, "leather");
+    foot.position.set(0, -H * 0.06, H * 0.028);
+    leg.tip.add(foot);
+
+    const sole = kit.box(H * 0.066, H * 0.016, H * 0.12, 0x24201c, "rubber");
+    sole.position.set(0, -H * 0.078, H * 0.028);
+    leg.tip.add(noShadow(sole));
+
+    root.add(leg.root);
+    legs.push(leg);
+  }
+  const rightLeg = legs[0];
+  const leftLeg = legs[1];
+  mirrorLimb(leftLeg);
+
+  bakeStatic(body);
+  bakeStatic(head);
+  [rightArm, leftArm, rightLeg, leftLeg].forEach(bakeLimb);
+
+  // --- pipe wrench, held in the right hand ---
   const weapon = new THREE.Group();
-  weapon.add(wrenchHandle, wrenchHead);
-  rightArm.add(weapon);
+  const handle = kit.capsule(H * 0.014, H * 0.2, 0x8f979f, "metal", 10);
+  handle.position.y = -H * 0.09;
+  weapon.add(handle);
 
-  const leftArm = new THREE.Group();
-  leftArm.position.set(0.42, legHeight + 0.58, 0);
-  const lArmMesh = cyl(0.11, 0.1, 0.5, secondary);
-  lArmMesh.position.y = -0.25;
-  leftArm.add(lArmMesh);
-  root.add(leftArm);
+  const grip = kit.cylinder(H * 0.018, H * 0.018, H * 0.06, 0x2b2b2b, "rubber", 10);
+  grip.position.y = -H * 0.035;
+  weapon.add(noShadow(grip));
 
-  const rightLeg = cyl(0.13, 0.13, legHeight, secondary);
-  rightLeg.position.set(-0.16, legHeight / 2, 0);
-  root.add(rightLeg);
-  const leftLeg = cyl(0.13, 0.13, legHeight, secondary);
-  leftLeg.position.set(0.16, legHeight / 2, 0);
-  root.add(leftLeg);
+  const jawRing = kit.torusArc(H * 0.034, H * 0.012, Math.PI * 1.45, 0x8f979f, "metal");
+  jawRing.rotation.z = -0.7;
+  jawRing.position.y = -H * 0.21;
+  weapon.add(jawRing);
 
-  return { root, body, head, rightArm, leftArm, rightLeg, leftLeg, weapon };
+  const jawBlock = kit.box(H * 0.05, H * 0.03, H * 0.024, 0x6f767d, "metal");
+  jawBlock.position.y = -H * 0.166;
+  weapon.add(noShadow(jawBlock));
+
+  weapon.rotation.x = -0.25;
+  weapon.position.y = -H * 0.05;
+  bakeStatic(weapon);
+  rightArm.tip.add(weapon);
+
+  return {
+    root,
+    body,
+    head,
+    rightArm: rightArm.root,
+    leftArm: leftArm.root,
+    rightLeg: rightLeg.root,
+    leftLeg: leftLeg.root,
+    weapon,
+  };
 }
+
+// ---------------------------------------------------------------------------
+// ビリネズ — small electric rodent: fur, snout, spark cheeks, power-cord tail.
+// ---------------------------------------------------------------------------
 
 function buildBirinezu(def: CharacterDef): CharacterParts {
+  const kit = new ModelKit();
   const { primary, secondary, accent } = def.palette;
+  const cream = 0xfff3c4;
+  const innerEar = 0xd88f8f;
+  const claw = 0xefe6cf;
+
+  const H = def.stats.height;
+  const hipY = H * 0.38;
   const root = new THREE.Group();
 
-  const legHeight = 0.28;
-  const body = sph(0.36, primary);
-  body.scale.set(1, 0.85, 1.1);
-  body.position.y = legHeight + 0.34;
+  // --- torso ---
+  const body = new THREE.Group();
+  body.position.y = hipY;
   root.add(body);
 
-  const belly = sph(0.24, 0xfff6c9);
-  belly.scale.set(0.9, 0.8, 0.6);
-  belly.position.set(0, legHeight + 0.26, 0.24);
-  root.add(belly);
+  const haunches = kit.sphere(H * 0.15, primary, "fur", 14);
+  haunches.scale.set(1, 0.82, 1.05);
+  haunches.position.y = H * 0.04;
+  body.add(haunches);
 
-  const socketMark = box(0.14, 0.2, 0.02, secondary);
-  socketMark.position.set(0, legHeight + 0.4, -0.33);
-  root.add(socketMark);
+  const chestR = H * 0.16;
+  const chest = kit.sphere(chestR, primary, "fur", 16);
+  chest.scale.set(0.96, 1.06, 1);
+  chest.position.y = H * 0.17;
+  body.add(chest);
 
-  const head = new THREE.Group();
-  head.position.y = legHeight + 0.72;
-  root.add(head);
-  const face = sph(0.24, primary);
-  head.add(face);
-  const earL = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 6), mat(accent, 0.3));
-  earL.position.set(-0.16, 0.22, 0);
-  earL.rotation.z = 0.3;
-  const earR = earL.clone();
-  earR.position.x = 0.16;
-  earR.rotation.z = -0.3;
-  head.add(earL, earR);
-  (earL.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(accent);
-  (earL.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.6;
-  (earR.material as THREE.MeshStandardMaterial).emissive = new THREE.Color(accent);
-  (earR.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.6;
+  // cream belly, laid on the body surface as a shell so it cannot z-fight
+  const belly = kit.shell(chestR * 1.015, cream, "fur", {
+    phiStart: Math.PI / 2 - 0.72,
+    phiLength: 1.44,
+    thetaStart: Math.PI * 0.32,
+    thetaLength: Math.PI * 0.52,
+    seg: 16,
+  });
+  belly.scale.copy(chest.scale);
+  belly.position.copy(chest.position);
+  body.add(noShadow(belly));
 
-  const rightArm = new THREE.Group();
-  rightArm.position.set(-0.34, legHeight + 0.44, 0);
-  const rArmMesh = sph(0.11, primary);
-  rightArm.add(rArmMesh);
-  root.add(rightArm);
-
-  const leftArm = new THREE.Group();
-  leftArm.position.set(0.34, legHeight + 0.44, 0);
-  const lArmMesh = sph(0.11, primary);
-  leftArm.add(lArmMesh);
-  root.add(leftArm);
-
-  const rightLeg = cyl(0.1, 0.1, legHeight, secondary);
-  rightLeg.position.set(-0.14, legHeight / 2, 0);
-  root.add(rightLeg);
-  const leftLeg = cyl(0.1, 0.1, legHeight, secondary);
-  leftLeg.position.set(0.14, legHeight / 2, 0);
-  root.add(leftLeg);
-
-  // cord-like tail made of a few chained segments
-  const tail = new THREE.Group();
-  const segCount = 5;
-  let prev = tail;
-  for (let i = 0; i < segCount; i++) {
-    const seg = cyl(0.045, 0.045, 0.22, secondary, 6);
-    seg.position.y = i === 0 ? 0 : -0.2;
-    seg.rotation.z = Math.sin(i) * 0.35;
-    prev.add(seg);
-    const holder = new THREE.Group();
-    holder.position.y = -0.22;
-    seg.add(holder);
-    prev = holder;
+  // two-pin socket marking on the back
+  for (const side of [-1, 1]) {
+    const pin = kit.box(H * 0.02, H * 0.05, 0.012, secondary, "rubber");
+    pin.position.set(side * H * 0.032, H * 0.2, -H * 0.15);
+    body.add(noShadow(pin));
   }
-  const tailTip = box(0.09, 0.09, 0.03, 0x222222);
-  prev.add(tailTip);
-  tail.position.set(0, legHeight + 0.4, -0.3);
-  tail.rotation.x = 0.6;
+
+  // --- head ---
+  const head = new THREE.Group();
+  head.position.y = H * 0.75;
+  root.add(head);
+
+  const r = H * 0.16;
+  const skull = kit.sphere(r, primary, "fur", 16);
+  skull.scale.set(1, 0.95, 1);
+  head.add(skull);
+
+  const snout = kit.sphere(r * 0.62, primary, "fur", 12);
+  snout.scale.set(0.82, 0.66, 1.05);
+  snout.position.set(0, -r * 0.34, r * 0.72);
+  head.add(noShadow(snout));
+
+  const nose = kit.sphere(r * 0.17, 0x241d1a, "plastic", 8);
+  nose.scale.set(1.15, 0.85, 0.9);
+  nose.position.set(0, -r * 0.28, r * 1.14);
+  head.add(noShadow(nose));
+
+  const mouth = kit.torusArc(r * 0.2, r * 0.035, Math.PI, 0x241d1a, "plastic");
+  mouth.rotation.set(Math.PI * 0.5, 0, Math.PI);
+  mouth.position.set(0, -r * 0.5, r * 0.92);
+  head.add(noShadow(mouth));
+
+  for (const side of [-1, 1]) {
+    const eye = kit.eye(r * 0.28, 0x2a1a12);
+    eye.position.set(side * r * 0.44, r * 0.12, r * 0.8);
+    eye.rotation.y = side * 0.3;
+    head.add(eye);
+
+    // spark cheek
+    const cheek = kit.sphere(r * 0.33, accent, "glow", 10);
+    cheek.scale.set(1, 1, 0.5);
+    cheek.position.set(side * r * 0.72, -r * 0.26, r * 0.52);
+    head.add(noShadow(cheek));
+
+    // whiskers
+    for (let i = 0; i < 3; i++) {
+      const whisker = kit.cylinder(0.004, 0.002, r * 0.9, 0x3c3428, "fur", 4);
+      whisker.rotation.set(0, 0, side * (Math.PI / 2 - 0.15));
+      whisker.rotation.x = (i - 1) * 0.18;
+      whisker.position.set(side * (r * 0.75 + r * 0.4), -r * 0.22 + (i - 1) * r * 0.12, r * 0.62);
+      head.add(noShadow(whisker));
+    }
+
+    // rounded ear with a charged tip
+    const ear = new THREE.Group();
+    ear.position.set(side * r * 0.6, r * 0.78, -r * 0.02);
+    ear.rotation.z = side * 0.34;
+    head.add(ear);
+
+    const earShell = kit.sphere(r * 0.6, primary, "fur", 12);
+    earShell.scale.set(0.82, 1.15, 0.3);
+    ear.add(earShell);
+
+    const earInner = kit.sphere(r * 0.6, innerEar, "fur", 10);
+    earInner.scale.set(0.56, 0.92, 0.28);
+    earInner.position.z = r * 0.05;
+    ear.add(noShadow(earInner));
+
+    const earTip = kit.sphere(r * 0.34, accent, "glow", 8);
+    earTip.scale.set(0.78, 0.6, 0.34);
+    earTip.position.y = r * 0.56;
+    ear.add(noShadow(earTip));
+  }
+
+  // --- limbs ---
+  const arms: Limb[] = [];
+  for (const side of [-1, 1]) {
+    const arm = kit.limb({
+      upperLength: H * 0.1,
+      upperRadius: H * 0.045,
+      lowerLength: H * 0.09,
+      lowerRadius: H * 0.038,
+      color: primary,
+      surface: "fur",
+      bend: -0.45,
+    });
+    arm.root.position.set(side * H * 0.17, H * 0.6, H * 0.02);
+    arm.root.rotation.z = side * 0.55;
+
+    const paw = kit.sphere(H * 0.045, primary, "fur", 10);
+    paw.scale.set(0.95, 0.85, 1.05);
+    paw.position.y = -H * 0.022;
+    arm.tip.add(paw);
+
+    for (let i = -1; i <= 1; i++) {
+      const nail = kit.cone(H * 0.008, H * 0.024, claw, "plastic", 6);
+      nail.rotation.x = -2.5;
+      nail.position.set(i * H * 0.022, -H * 0.04, H * 0.03);
+      arm.tip.add(noShadow(nail));
+    }
+
+    root.add(arm.root);
+    arms.push(arm);
+  }
+  mirrorLimb(arms[1]);
+
+  const legs: Limb[] = [];
+  for (const side of [-1, 1]) {
+    const leg = kit.limb({
+      upperLength: H * 0.18,
+      upperRadius: H * 0.062,
+      lowerLength: H * 0.12,
+      lowerRadius: H * 0.045,
+      color: primary,
+      surface: "fur",
+      lowerColor: secondary,
+      bend: 0.5,
+    });
+    leg.root.position.set(side * H * 0.095, hipY, 0);
+
+    const foot = kit.sphere(H * 0.055, secondary, "fur", 10);
+    foot.scale.set(0.9, 0.55, 1.5);
+    foot.position.set(0, -H * 0.018, H * 0.03);
+    leg.tip.add(foot);
+
+    for (let i = -1; i <= 1; i++) {
+      const nail = kit.cone(H * 0.009, H * 0.026, claw, "plastic", 6);
+      nail.rotation.x = -Math.PI / 2;
+      nail.position.set(i * H * 0.024, -H * 0.022, H * 0.1);
+      leg.tip.add(noShadow(nail));
+    }
+
+    root.add(leg.root);
+    legs.push(leg);
+  }
+  mirrorLimb(legs[1]);
+
+  // --- power-cord tail ending in a two-pin plug ---
+  const tail = new THREE.Group();
+  tail.position.set(0, hipY + H * 0.1, -H * 0.13);
+  tail.rotation.x = -1.3; // sweeps back from the rump, then curls upward
   root.add(tail);
 
-  return { root, body, head, rightArm, leftArm, rightLeg, leftLeg, extra: tail };
+  let attach: THREE.Object3D = tail;
+  const segLength = H * 0.105;
+  for (let i = 0; i < 5; i++) {
+    const seg = kit.capsule(H * 0.024, segLength, secondary, "rubber", 8);
+    seg.position.y = segLength * 0.5;
+    attach.add(seg);
+
+    const next = new THREE.Group();
+    next.position.y = segLength;
+    next.rotation.x = 0.13;
+    next.rotation.z = Math.sin(i * 1.7) * 0.14;
+    attach.add(next);
+    attach = next;
+  }
+
+  const plugBody = kit.box(H * 0.075, H * 0.07, H * 0.05, cream, "plastic");
+  plugBody.position.y = H * 0.03;
+  attach.add(plugBody);
+
+  for (const side of [-1, 1]) {
+    const prong = kit.box(H * 0.014, H * 0.055, H * 0.008, 0xb9c0c6, "metal");
+    prong.position.set(side * H * 0.02, H * 0.09, 0);
+    attach.add(noShadow(prong));
+  }
+
+  bakeStatic(body);
+  bakeStatic(head);
+  bakeStatic(tail);
+  [...arms, ...legs].forEach(bakeLimb);
+
+  return {
+    root,
+    body,
+    head,
+    rightArm: arms[0].root,
+    leftArm: arms[1].root,
+    rightLeg: legs[0].root,
+    leftLeg: legs[1].root,
+    extra: tail,
+  };
 }
+
+// ---------------------------------------------------------------------------
+// ハヤスギ — lean sprinter in an aero racing suit with a visored helmet.
+// ---------------------------------------------------------------------------
 
 function buildHayasugi(def: CharacterDef): CharacterParts {
+  const kit = new ModelKit();
   const { primary, secondary, accent, skin } = def.palette;
+  const thrust = 0x9fd8ff;
+
+  const H = def.stats.height;
+  const p = humanProportions(H);
   const root = new THREE.Group();
 
-  const legHeight = 0.62;
-  const body = box(0.46, 0.62, 0.32, primary);
-  body.position.y = legHeight + 0.31;
+  // --- torso ---
+  const body = new THREE.Group();
+  body.position.y = p.hip;
   root.add(body);
 
-  const chest = box(0.3, 0.2, 0.34, accent);
-  chest.position.y = legHeight + 0.5;
-  root.add(chest);
+  const pelvis = kit.sphere(H * 0.092, primary, "cloth");
+  pelvis.scale.set(1, 0.68, 0.78);
+  pelvis.position.y = 0.02;
+  body.add(pelvis);
 
+  const abdomen = kit.sphere(H * 0.094, primary, "cloth");
+  abdomen.scale.set(0.94, 0.9, 0.68);
+  abdomen.position.y = p.waist - p.hip + 0.01;
+  body.add(abdomen);
+
+  const chestR = H * 0.112;
+  const chest = kit.sphere(chestR, primary, "cloth");
+  chest.scale.set(1, 0.92, 0.66);
+  chest.position.y = p.chest - p.hip + 0.03;
+  body.add(chest);
+
+  const traps = kit.sphere(H * 0.1, primary, "cloth", 12);
+  traps.scale.set(1.06, 0.42, 0.64);
+  traps.position.y = p.shoulder - p.hip - 0.01;
+  body.add(traps);
+
+  // chest bib, centre stripe and flank panels are laid onto the suit as shells
+  const bib = kit.shell(chestR * 1.015, secondary, "cloth", {
+    phiStart: Math.PI / 2 - 0.45,
+    phiLength: 0.9,
+    thetaStart: Math.PI * 0.24,
+    thetaLength: Math.PI * 0.3,
+    seg: 16,
+  });
+  bib.scale.copy(chest.scale);
+  bib.position.copy(chest.position);
+  body.add(noShadow(bib));
+
+  const centreStripe = kit.shell(chestR * 1.025, accent, "plastic", {
+    phiStart: Math.PI / 2 - 0.08,
+    phiLength: 0.16,
+    thetaStart: Math.PI * 0.2,
+    thetaLength: Math.PI * 0.42,
+    seg: 8,
+  });
+  centreStripe.scale.copy(chest.scale);
+  centreStripe.position.copy(chest.position);
+  body.add(noShadow(centreStripe));
+
+  for (const side of [-1, 1]) {
+    const panel = kit.shell(chestR * 1.012, accent, "cloth", {
+      phiStart: side < 0 ? Math.PI - 0.35 : -0.35,
+      phiLength: 0.7,
+      thetaStart: Math.PI * 0.3,
+      thetaLength: Math.PI * 0.45,
+      seg: 14,
+    });
+    panel.scale.copy(chest.scale);
+    panel.position.copy(chest.position);
+    body.add(noShadow(panel));
+  }
+
+  const waistBand = kit.cylinder(H * 0.09, H * 0.09, H * 0.03, accent, "plastic", 14, true);
+  waistBand.scale.set(1, 1, 0.74);
+  waistBand.position.y = p.waist - p.hip - 0.03;
+  body.add(noShadow(waistBand));
+
+  const stripe = kit.box(H * 0.018, H * 0.13, 0.01, secondary, "cloth");
+  stripe.position.set(0, p.waist - p.hip, H * 0.062);
+  body.add(noShadow(stripe));
+
+  const collar = kit.cylinder(H * 0.038, H * 0.044, H * 0.038, accent, "plastic", 12);
+  collar.position.y = p.neck - p.hip - 0.02;
+  body.add(collar);
+
+  // --- helmet ---
+  const headY = (p.chin + p.crown) / 2;
+  const r = H * 0.07;
   const head = new THREE.Group();
-  head.position.y = legHeight + 0.62 + 0.26;
+  head.position.y = headY;
   root.add(head);
-  const face = sph(0.22, skin);
-  head.add(face);
-  const goggle = box(0.32, 0.09, 0.06, 0x142033);
-  goggle.position.set(0, 0.02, 0.19);
-  head.add(goggle);
-  const fin = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.4, 4), mat(secondary, 0.3));
-  fin.rotation.x = Math.PI / 2.2;
-  fin.position.set(0, 0.12, -0.22);
+
+  const jaw = kit.sphere(r * 0.72, skin, "skin", 12);
+  jaw.scale.set(0.84, 0.8, 0.94);
+  jaw.position.set(0, -r * 0.46, r * 0.14);
+  head.add(jaw);
+
+  const helmet = kit.sphere(r, primary, "plastic", 16);
+  helmet.scale.set(0.96, 1.04, 1.02);
+  head.add(helmet);
+
+  const visor = kit.shell(r * 1.03, 0x0d1c33, "visor", {
+    phiStart: -0.25,
+    phiLength: Math.PI + 0.5,
+    thetaStart: Math.PI * 0.36,
+    thetaLength: Math.PI * 0.28,
+    seg: 18,
+  });
+  visor.scale.set(0.98, 1.04, 1.04);
+  head.add(noShadow(visor));
+
+  const crestBase = kit.shell(r * 1.02, secondary, "plastic", {
+    phiStart: -Math.PI / 2 - 0.09,
+    phiLength: 0.18,
+    thetaStart: 0,
+    thetaLength: Math.PI * 0.62,
+    seg: 10,
+  });
+  crestBase.scale.set(0.98, 1.06, 1.04);
+  head.add(noShadow(crestBase));
+
+  for (const side of [-1, 1]) {
+    const pod = kit.cylinder(r * 0.3, r * 0.3, r * 0.16, accent, "plastic", 12);
+    pod.rotation.z = Math.PI / 2;
+    pod.position.set(side * r * 0.92, -r * 0.1, -r * 0.06);
+    head.add(noShadow(pod));
+
+    const podRing = kit.cylinder(r * 0.16, r * 0.16, r * 0.2, secondary, "plastic", 10);
+    podRing.rotation.z = Math.PI / 2;
+    podRing.position.set(side * r * 0.98, -r * 0.1, -r * 0.06);
+    head.add(noShadow(podRing));
+  }
+
+  // swept-back tail fin
+  const fin = new THREE.Group();
+  fin.position.set(0, r * 0.55, -r * 0.5);
   head.add(fin);
+  const finBlade = kit.cone(r * 0.5, r * 2.1, secondary, "plastic", 4);
+  finBlade.scale.set(0.3, 1, 1);
+  finBlade.rotation.x = -Math.PI / 2 + 0.3;
+  finBlade.position.set(0, r * 0.35, -r * 1.0);
+  fin.add(finBlade);
+  const finEdge = kit.box(r * 0.07, r * 0.09, r * 1.5, accent, "plastic");
+  finEdge.rotation.x = -0.5;
+  finEdge.position.set(0, r * 0.72, -r * 0.86);
+  fin.add(noShadow(finEdge));
 
-  const rightArm = new THREE.Group();
-  rightArm.position.set(-0.32, legHeight + 0.55, 0);
-  const rArmMesh = cyl(0.09, 0.08, 0.46, primary);
-  rArmMesh.position.y = -0.23;
-  rightArm.add(rArmMesh);
-  root.add(rightArm);
+  // --- limbs ---
+  const armUpper = H * 0.185;
+  const armLower = H * 0.155;
+  const arms: Limb[] = [];
+  for (const side of [-1, 1]) {
+    const arm = kit.limb({
+      upperLength: armUpper,
+      upperRadius: H * 0.03,
+      lowerLength: armLower,
+      lowerRadius: H * 0.026,
+      color: primary,
+      surface: "cloth",
+      lowerColor: secondary,
+      jointColor: accent,
+      bend: -0.28,
+    });
+    arm.root.position.set(side * H * 0.104, p.shoulder, 0);
+    arm.root.rotation.z = side * 0.08;
 
-  const leftArm = new THREE.Group();
-  leftArm.position.set(0.32, legHeight + 0.55, 0);
-  const lArmMesh = cyl(0.09, 0.08, 0.46, primary);
-  lArmMesh.position.y = -0.23;
-  leftArm.add(lArmMesh);
-  root.add(leftArm);
+    const pad = kit.shell(H * 0.036, secondary, "plastic", { thetaLength: Math.PI * 0.6, seg: 12 });
+    pad.scale.set(1.06, 0.9, 1.06);
+    arm.root.add(noShadow(pad));
 
-  const rightLeg = new THREE.Group();
-  rightLeg.position.set(-0.14, legHeight, 0);
-  const rLegMesh = cyl(0.11, 0.1, legHeight, secondary);
-  rLegMesh.position.y = -legHeight / 2;
-  rightLeg.add(rLegMesh);
-  const rJet = cyl(0.07, 0.09, 0.16, accent);
-  rJet.position.set(0, -legHeight + 0.05, -0.08);
-  rJet.rotation.x = Math.PI / 2;
-  rightLeg.add(rJet);
-  root.add(rightLeg);
+    const glove = kit.sphere(H * 0.03, accent, "leather", 10);
+    glove.scale.set(0.85, 1.1, 0.95);
+    glove.position.y = -H * 0.022;
+    arm.tip.add(glove);
 
-  const leftLeg = new THREE.Group();
-  leftLeg.position.set(0.14, legHeight, 0);
-  const lLegMesh = cyl(0.11, 0.1, legHeight, secondary);
-  lLegMesh.position.y = -legHeight / 2;
-  leftLeg.add(lLegMesh);
-  const lJet = cyl(0.07, 0.09, 0.16, accent);
-  lJet.position.set(0, -legHeight + 0.05, -0.08);
-  lJet.rotation.x = Math.PI / 2;
-  leftLeg.add(lJet);
-  root.add(leftLeg);
+    // aero fin on the outside of the forearm
+    const aero = kit.box(H * 0.008, H * 0.032, H * 0.07, accent, "plastic");
+    aero.position.set(side * H * 0.022, -armLower * 0.5, -H * 0.014);
+    aero.rotation.x = 0.25;
+    arm.joint.add(noShadow(aero));
 
-  return { root, body, head, rightArm, leftArm, rightLeg, leftLeg, extra: fin };
+    root.add(arm.root);
+    arms.push(arm);
+  }
+  mirrorLimb(arms[1]);
+
+  const thigh = p.hip - p.knee;
+  const shin = p.knee - p.ankle;
+  const legs: Limb[] = [];
+  for (const side of [-1, 1]) {
+    const leg = kit.limb({
+      upperLength: thigh,
+      upperRadius: H * 0.045,
+      lowerLength: shin,
+      lowerRadius: H * 0.034,
+      color: primary,
+      surface: "cloth",
+      lowerColor: secondary,
+      jointColor: accent,
+      bend: 0.08,
+    });
+    leg.root.position.set(side * H * 0.05, p.hip, 0);
+
+    const boot = kit.box(H * 0.056, H * 0.05, H * 0.13, accent, "plastic");
+    boot.position.set(0, -H * 0.026, H * 0.028);
+    leg.tip.add(boot);
+
+    const sole = kit.box(H * 0.06, H * 0.014, H * 0.135, secondary, "rubber");
+    sole.position.set(0, -H * 0.05, H * 0.028);
+    leg.tip.add(noShadow(sole));
+
+    // heel thruster
+    const nozzle = kit.cylinder(H * 0.03, H * 0.022, H * 0.05, 0x9aa3ad, "metal", 10);
+    nozzle.rotation.x = Math.PI / 2;
+    nozzle.position.set(0, -H * 0.016, -H * 0.06);
+    leg.tip.add(nozzle);
+
+    const flame = kit.cylinder(H * 0.019, H * 0.019, H * 0.012, thrust, "glow", 8);
+    flame.rotation.x = Math.PI / 2;
+    flame.position.set(0, -H * 0.016, -H * 0.082);
+    leg.tip.add(noShadow(flame));
+
+    root.add(leg.root);
+    legs.push(leg);
+  }
+  mirrorLimb(legs[1]);
+
+  bakeStatic(body);
+  bakeStatic(head, [fin]);
+  bakeStatic(fin);
+  [...arms, ...legs].forEach(bakeLimb);
+
+  return {
+    root,
+    body,
+    head,
+    rightArm: arms[0].root,
+    leftArm: arms[1].root,
+    rightLeg: legs[0].root,
+    leftLeg: legs[1].root,
+    extra: fin,
+  };
 }
 
+// ---------------------------------------------------------------------------
+// ダンボール・ジョー — infiltrator in fatigues under a taped-up cardboard crate.
+// ---------------------------------------------------------------------------
+
 function buildDanboru(def: CharacterDef): CharacterParts {
-  const { primary, secondary, accent } = def.palette;
+  const kit = new ModelKit();
+  const { primary, secondary, accent, skin } = def.palette;
+  const suit = skin; // dark bodysuit tone
+  const tape = 0xd9cbb0;
+  const stencil = 0x6b5533;
+  const olive = 0x4f5540;
+
+  const H = def.stats.height;
+  const p = humanProportions(H);
   const root = new THREE.Group();
 
-  const legHeight = 0.5;
-  const body = box(0.7, 0.72, 0.5, primary);
-  body.position.y = legHeight + 0.36;
+  // --- soldier underneath ---
+  const body = new THREE.Group();
+  body.position.y = p.hip;
   root.add(body);
 
-  const flapL = box(0.34, 0.18, 0.06, secondary);
-  flapL.position.set(-0.2, legHeight + 0.68, 0.2);
-  flapL.rotation.z = 0.35;
-  const flapR = box(0.34, 0.18, 0.06, secondary);
-  flapR.position.set(0.2, legHeight + 0.68, 0.2);
-  flapR.rotation.z = -0.35;
-  root.add(flapL, flapR);
+  const pelvis = kit.sphere(H * 0.115, suit, "cloth");
+  pelvis.scale.set(1, 0.68, 0.8);
+  pelvis.position.y = 0.02;
+  body.add(pelvis);
 
-  const backpack = box(0.4, 0.4, 0.2, secondary);
-  backpack.position.set(0, legHeight + 0.4, -0.3);
+  const abdomen = kit.sphere(H * 0.118, suit, "cloth");
+  abdomen.scale.set(0.96, 0.86, 0.74);
+  abdomen.position.y = p.waist - p.hip + 0.01;
+  body.add(abdomen);
+
+  const chest = kit.sphere(H * 0.132, suit, "cloth");
+  chest.scale.set(1.02, 0.86, 0.74);
+  chest.position.y = p.chest - p.hip + 0.03;
+  body.add(chest);
+
+  const vest = kit.sphere(H * 0.134, accent, "cloth", 14);
+  vest.scale.set(0.94, 0.72, 0.78);
+  vest.position.y = p.chest - p.hip + 0.02;
+  body.add(noShadow(vest));
+
+  for (const side of [-1, 1]) {
+    const pouch = kit.box(H * 0.055, H * 0.05, H * 0.03, olive, "cloth");
+    pouch.position.set(side * H * 0.055, p.chest - p.hip - H * 0.04, H * 0.096);
+    body.add(noShadow(pouch));
+  }
+
+  const belt = kit.cylinder(H * 0.112, H * 0.112, H * 0.036, 0x2a2a26, "leather", 14, true);
+  belt.scale.set(1, 1, 0.8);
+  belt.position.y = p.waist - p.hip - 0.04;
+  body.add(noShadow(belt));
+
+  // --- cardboard crate worn over the torso ---
+  const crateW = H * 0.29;
+  const crateH = H * 0.3;
+  const crateD = H * 0.24;
+  // top edge stops just under the shoulders so the arms stay readable
+  const crateY = p.shoulder - p.hip - H * 0.04 - crateH / 2;
+
+  const crate = kit.box(crateW, crateH, crateD, primary, "card");
+  crate.position.y = crateY;
+  body.add(crate);
+
+  const crateRim = kit.box(crateW * 1.01, H * 0.014, crateD * 1.01, secondary, "card");
+  crateRim.position.y = crateY + crateH / 2;
+  body.add(noShadow(crateRim));
+
+  // packing tape along the seams
+  const tapeV = kit.box(H * 0.05, crateH * 0.98, 0.006, tape, "plastic");
+  tapeV.position.set(0, crateY, crateD / 2 + 0.004);
+  body.add(noShadow(tapeV));
+
+  const tapeH = kit.box(crateW * 0.99, H * 0.04, 0.006, tape, "plastic");
+  tapeH.position.set(0, crateY - crateH * 0.3, crateD / 2 + 0.004);
+  body.add(noShadow(tapeH));
+
+  // stencilled "this side up" arrow + shipping label
+  const arrowShaft = kit.box(H * 0.014, H * 0.07, 0.005, stencil, "card");
+  arrowShaft.position.set(-crateW * 0.3, crateY + crateH * 0.06, crateD / 2 + 0.005);
+  body.add(noShadow(arrowShaft));
+  for (const side of [-1, 1]) {
+    const barb = kit.box(H * 0.012, H * 0.035, 0.005, stencil, "card");
+    barb.position.set(-crateW * 0.3 + side * H * 0.013, crateY + crateH * 0.12, crateD / 2 + 0.005);
+    barb.rotation.z = side * 0.9;
+    body.add(noShadow(barb));
+  }
+
+  const label = kit.box(H * 0.085, H * 0.055, 0.005, tape, "card");
+  label.position.set(crateW * 0.26, crateY - crateH * 0.04, crateD / 2 + 0.005);
+  body.add(noShadow(label));
+  for (let i = 0; i < 3; i++) {
+    const line = kit.box(H * 0.06, H * 0.006, 0.004, stencil, "card");
+    line.position.set(crateW * 0.26, crateY - crateH * 0.04 + (1 - i) * H * 0.015, crateD / 2 + 0.008);
+    body.add(noShadow(line));
+  }
+
+  // observation slit
+  const slit = kit.box(H * 0.17, H * 0.028, 0.008, 0x14120f, "plastic");
+  slit.position.set(0, crateY + crateH * 0.3, crateD / 2 + 0.005);
+  body.add(noShadow(slit));
+
+  // open flaps
+  const flapSpecs: Array<{ w: number; d: number; pos: [number, number, number]; rot: [number, number, number] }> = [
+    { w: crateW, d: crateD * 0.5, pos: [0, crateY + crateH / 2 + H * 0.02, crateD * 0.36], rot: [0.85, 0, 0] },
+    { w: crateW, d: crateD * 0.5, pos: [0, crateY + crateH / 2 + H * 0.03, -crateD * 0.4], rot: [-1.1, 0, 0] },
+    { w: crateD * 0.5, d: crateW, pos: [-crateW * 0.42, crateY + crateH / 2 + H * 0.025, 0], rot: [0, 0, -0.95] },
+    { w: crateD * 0.5, d: crateW, pos: [crateW * 0.42, crateY + crateH / 2 + H * 0.025, 0], rot: [0, 0, 0.95] },
+  ];
+  for (const spec of flapSpecs) {
+    const flap = kit.box(spec.w, H * 0.012, spec.d, primary, "card");
+    flap.position.set(...spec.pos);
+    flap.rotation.set(...spec.rot);
+    body.add(flap);
+  }
+
+  // --- head: balaclava, helmet, goggles ---
+  const headY = (p.chin + p.crown) / 2;
+  const r = H * 0.07;
+  const head = new THREE.Group();
+  head.position.y = headY;
+  root.add(head);
+
+  const hood = kit.sphere(r, suit, "cloth", 14);
+  hood.scale.set(0.9, 1, 0.95);
+  head.add(hood);
+
+  const helmet = kit.dome(r * 1.06, olive, "plastic", 16);
+  helmet.scale.set(0.98, 0.92, 1.02);
+  helmet.position.y = r * 0.06;
+  head.add(helmet);
+
+  const helmetBrim = kit.halfDisc(r * 1.12, r * 0.1, olive, "plastic", 14);
+  helmetBrim.scale.set(0.98, 1, 1.05);
+  helmetBrim.position.set(0, r * 0.12, r * 0.1);
+  helmetBrim.rotation.x = 0.1;
+  head.add(noShadow(helmetBrim));
+
+  const goggleStrap = kit.cylinder(r * 1.02, r * 1.02, r * 0.26, 0x24241f, "rubber", 14, true);
+  goggleStrap.scale.set(0.92, 1, 0.97);
+  goggleStrap.position.y = r * 0.16;
+  head.add(noShadow(goggleStrap));
+
+  for (const side of [-1, 1]) {
+    const lens = kit.cylinder(r * 0.3, r * 0.3, r * 0.12, accent, "visor", 12);
+    lens.rotation.x = Math.PI / 2;
+    lens.position.set(side * r * 0.34, r * 0.16, r * 0.82);
+    head.add(noShadow(lens));
+
+    const rim = kit.torusArc(r * 0.32, r * 0.05, Math.PI * 2, 0x24241f, "rubber");
+    rim.position.set(side * r * 0.34, r * 0.16, r * 0.78);
+    head.add(noShadow(rim));
+  }
+
+  const mask = kit.sphere(r * 0.7, 0x2c2c28, "cloth", 10);
+  mask.scale.set(0.9, 0.62, 0.86);
+  mask.position.set(0, -r * 0.46, r * 0.24);
+  head.add(noShadow(mask));
+
+  // --- limbs ---
+  const armUpper = H * 0.18;
+  const armLower = H * 0.152;
+  const arms: Limb[] = [];
+  for (const side of [-1, 1]) {
+    const arm = kit.limb({
+      upperLength: armUpper,
+      upperRadius: H * 0.04,
+      lowerLength: armLower,
+      lowerRadius: H * 0.034,
+      color: suit,
+      surface: "cloth",
+      lowerColor: olive,
+      bend: -0.32,
+    });
+    arm.root.position.set(side * H * 0.15, p.shoulder, 0);
+    arm.root.rotation.z = side * 0.14;
+
+    const pad = kit.shell(H * 0.05, olive, "cloth", { thetaLength: Math.PI * 0.6, seg: 12 });
+    pad.scale.set(1, 0.85, 1);
+    arm.root.add(noShadow(pad));
+
+    const glove = kit.sphere(H * 0.038, 0x22221e, "leather", 10);
+    glove.scale.set(0.85, 1.05, 0.95);
+    glove.position.y = -H * 0.026;
+    arm.tip.add(glove);
+
+    root.add(arm.root);
+    arms.push(arm);
+  }
+  mirrorLimb(arms[1]);
+
+  const thigh = p.hip - p.knee;
+  const shin = p.knee - p.ankle;
+  const legs: Limb[] = [];
+  for (const side of [-1, 1]) {
+    const leg = kit.limb({
+      upperLength: thigh,
+      upperRadius: H * 0.056,
+      lowerLength: shin,
+      lowerRadius: H * 0.044,
+      color: suit,
+      surface: "cloth",
+      lowerColor: olive,
+      bend: 0.1,
+    });
+    leg.root.position.set(side * H * 0.062, p.hip, 0);
+
+    const kneePad = kit.shell(H * 0.058, 0x2c2c28, "leather", {
+      phiStart: 0.2,
+      phiLength: Math.PI - 0.4,
+      thetaStart: Math.PI * 0.18,
+      thetaLength: Math.PI * 0.64,
+      seg: 10,
+    });
+    kneePad.scale.set(1, 1.15, 1);
+    leg.joint.add(noShadow(kneePad));
+
+    const bootShaft = kit.cylinder(H * 0.052, H * 0.048, H * 0.11, 0x22221e, "leather", 10);
+    bootShaft.position.y = -H * 0.036;
+    leg.tip.add(bootShaft);
+
+    const foot = kit.box(H * 0.07, H * 0.046, H * 0.135, 0x22221e, "leather");
+    foot.position.set(0, -H * 0.07, H * 0.03);
+    leg.tip.add(foot);
+
+    const sole = kit.box(H * 0.074, H * 0.018, H * 0.14, 0x14140f, "rubber");
+    sole.position.set(0, -H * 0.09, H * 0.03);
+    leg.tip.add(noShadow(sole));
+
+    root.add(leg.root);
+    legs.push(leg);
+  }
+  mirrorLimb(legs[1]);
+
+  // --- backpack ---
+  const backpack = new THREE.Group();
+  backpack.position.set(0, p.hip + crateY, -crateD * 0.5 - H * 0.07);
   root.add(backpack);
 
-  const head = new THREE.Group();
-  head.position.y = legHeight + 0.72 + 0.24;
-  root.add(head);
-  const faceBox = box(0.4, 0.36, 0.36, primary);
-  head.add(faceBox);
-  const eyeSlit = box(0.28, 0.06, 0.02, accent);
-  eyeSlit.position.set(0, 0.02, 0.19);
-  head.add(eyeSlit);
+  const packBody = kit.box(H * 0.21, H * 0.24, H * 0.1, olive, "cloth");
+  backpack.add(packBody);
 
-  const rightArm = new THREE.Group();
-  rightArm.position.set(-0.44, legHeight + 0.58, 0);
-  const rArmMesh = box(0.16, 0.5, 0.16, secondary);
-  rArmMesh.position.y = -0.25;
-  rightArm.add(rArmMesh);
-  root.add(rightArm);
+  const packLid = kit.box(H * 0.22, H * 0.07, H * 0.11, secondary, "cloth");
+  packLid.position.y = H * 0.095;
+  backpack.add(noShadow(packLid));
 
-  const shovelHead = box(0.16, 0.2, 0.03, accent);
-  shovelHead.position.set(0, -0.55, 0.05);
-  const shovelHandle = cyl(0.03, 0.03, 0.32, 0x5a4a2f);
-  shovelHandle.position.set(0, -0.4, 0);
+  for (const side of [-1, 1]) {
+    const strap = kit.box(H * 0.03, H * 0.24, 0.008, 0x2a2a26, "leather");
+    strap.position.set(side * H * 0.075, -H * 0.02, H * 0.065);
+    backpack.add(noShadow(strap));
+  }
+
+  const bedroll = kit.capsule(H * 0.035, H * 0.26, secondary, "cloth", 10);
+  bedroll.rotation.z = Math.PI / 2;
+  bedroll.position.set(0, -H * 0.14, H * 0.01);
+  backpack.add(noShadow(bedroll));
+
+  bakeStatic(body);
+  bakeStatic(head);
+  bakeStatic(backpack);
+  [...arms, ...legs].forEach(bakeLimb);
+
+  // --- entrenching tool, held in the right hand ---
   const weapon = new THREE.Group();
-  weapon.add(shovelHandle, shovelHead);
-  rightArm.add(weapon);
+  const shaft = kit.capsule(H * 0.014, H * 0.22, 0x5a4a2f, "leather", 10);
+  shaft.position.y = -H * 0.1;
+  weapon.add(shaft);
 
-  const leftArm = new THREE.Group();
-  leftArm.position.set(0.44, legHeight + 0.58, 0);
-  const lArmMesh = box(0.16, 0.5, 0.16, secondary);
-  lArmMesh.position.y = -0.25;
-  leftArm.add(lArmMesh);
-  root.add(leftArm);
+  const collar = kit.cylinder(H * 0.022, H * 0.022, H * 0.035, 0x9aa3ad, "metal", 10);
+  collar.position.y = -H * 0.2;
+  weapon.add(noShadow(collar));
 
-  const rightLeg = box(0.2, legHeight, 0.22, secondary);
-  rightLeg.position.set(-0.18, legHeight / 2, 0);
-  root.add(rightLeg);
-  const leftLeg = box(0.2, legHeight, 0.22, secondary);
-  leftLeg.position.set(0.18, legHeight / 2, 0);
-  root.add(leftLeg);
+  const blade = kit.box(H * 0.09, H * 0.1, H * 0.014, 0x6e767e, "metal");
+  blade.position.y = -H * 0.26;
+  weapon.add(blade);
 
-  return { root, body, head, rightArm, leftArm, rightLeg, leftLeg, weapon, extra: backpack };
+  // spade point: a square rotated onto its corner, flush with the blade
+  const bladeTip = kit.box(H * 0.064, H * 0.064, H * 0.014, 0x6e767e, "metal");
+  bladeTip.rotation.z = Math.PI / 4;
+  bladeTip.position.y = -H * 0.3;
+  weapon.add(noShadow(bladeTip));
+
+  weapon.rotation.x = -0.2;
+  weapon.position.y = -H * 0.045;
+  bakeStatic(weapon);
+  arms[0].tip.add(weapon);
+
+  return {
+    root,
+    body,
+    head,
+    rightArm: arms[0].root,
+    leftArm: arms[1].root,
+    rightLeg: legs[0].root,
+    leftLeg: legs[1].root,
+    weapon,
+    extra: backpack,
+  };
 }
