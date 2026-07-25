@@ -14,31 +14,81 @@
     </div>
     <script>
       // Classic (non-module) script: runs even when the module script below
-      // fails silently (e.g. opened via file://, or served without a
-      // TypeScript-aware dev server), so a blank white screen always shows
-      // a diagnostic message instead of nothing.
-      window.__jbShowBootError = function (message) {
-        var el = document.createElement("div");
-        el.style.cssText =
-          "position:fixed;inset:0;z-index:9999;background:#0a0a12;color:#fff;" +
-          "font-family:sans-serif;padding:24px;box-sizing:border-box;" +
-          "white-space:pre-wrap;overflow:auto;line-height:1.6;";
-        el.textContent = message;
-        document.body.appendChild(el);
-      };
-      window.setTimeout(function () {
-        if (!window.__jbBooted) {
-          window.__jbShowBootError(
-            "画面が読み込まれていません。\n\n" +
-              "考えられる原因:\n" +
-              "・index.html をファイルとして直接開いている（file://）\n" +
-              "  → 'npm run dev' で開発サーバーを起動してアクセスしてください\n" +
-              "・ビルドせずに静的サーバーでソースを配信している\n" +
-              "  → 'npm run build' 後に生成される dist/ フォルダを配信してください\n\n" +
-              "詳細はブラウザの開発者コンソールを確認してください。"
-          );
+      // fails to load or parse, so a blank white screen always turns into a
+      // readable report. Phones have no reachable developer console, so this
+      // overlay is the only channel for diagnosing a failed boot.
+      (function () {
+        var shown = false;
+
+        function show(title, detail) {
+          if (shown) return;
+          shown = true;
+          var el = document.createElement("div");
+          el.style.cssText =
+            "position:fixed;inset:0;z-index:9999;background:#0a0a12;color:#fff;" +
+            "font-family:sans-serif;padding:20px;box-sizing:border-box;" +
+            "white-space:pre-wrap;overflow:auto;line-height:1.6;font-size:14px;" +
+            "-webkit-user-select:text;user-select:text;";
+          el.textContent = title + "\n\n" + detail + "\n\n" + environment();
+          document.body.appendChild(el);
         }
-      }, 4000);
+
+        // Capability probe: the answers identify most device-specific failures
+        // without needing a console, and stay readable when copied as text.
+        function environment() {
+          var lines = ["--- 環境情報 ---"];
+          try {
+            var c = document.createElement("canvas");
+            var gl = c.getContext("webgl2") || c.getContext("webgl");
+            lines.push("WebGL: " + (gl ? "利用可能" : "利用不可（描画できません）"));
+          } catch (e) {
+            lines.push("WebGL: 判定エラー " + e);
+          }
+          try {
+            localStorage.getItem("__jb_probe");
+            lines.push("localStorage: 利用可能");
+          } catch (e) {
+            lines.push("localStorage: ブロック中（" + (e && e.name) + "）");
+          }
+          lines.push("画面: " + window.innerWidth + "x" + window.innerHeight);
+          lines.push("UA: " + navigator.userAgent);
+          return lines.join("\n");
+        }
+
+        window.__jbShowBootError = function (message) {
+          show("初期化中にエラーが発生しました", message);
+        };
+
+        // Resource load failures do not bubble, so capture is required to see
+        // a <script> or <link> that never arrived.
+        window.addEventListener(
+          "error",
+          function (ev) {
+            if (ev.target && ev.target !== window && ev.target.tagName) {
+              show(
+                "ファイルの読み込みに失敗しました",
+                ev.target.tagName + ": " + (ev.target.src || ev.target.href)
+              );
+              return;
+            }
+            show("スクリプトエラー", (ev.message || "不明") + "\n" + ((ev.error && ev.error.stack) || ""));
+          },
+          true
+        );
+
+        window.addEventListener("unhandledrejection", function (ev) {
+          show("未処理の例外", String((ev.reason && ev.reason.stack) || ev.reason));
+        });
+
+        window.setTimeout(function () {
+          if (!window.__jbBooted) {
+            show(
+              "ゲームが起動しませんでした",
+              "スクリプトは読み込まれましたが、初期化が完了していません。"
+            );
+          }
+        }, 5000);
+      })();
     </script>
     <script type="module" src="/src/main.ts"></script>
   </body>

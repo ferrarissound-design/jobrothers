@@ -23,6 +23,7 @@ import {
 import type { AIPersonality } from "./ai/AIState";
 import { horizontalDistance } from "./combat/Hitbox";
 import { clamp, dampAngle } from "./utils/math";
+import { readSetting, writeSetting } from "./utils/storage";
 
 type MatchPhase = "playing" | "paused" | "result";
 
@@ -69,9 +70,9 @@ export class Game {
   constructor(private canvas: HTMLCanvasElement, private uiRoot: HTMLElement) {
     this.isMobile = isMobileDevice();
     this.quality =
-      (localStorage.getItem(STORAGE_KEYS.quality) as QualityLevel | null) ??
+      (readSetting(STORAGE_KEYS.quality) as QualityLevel | null) ??
       (this.isMobile ? "medium" : "high");
-    this.difficulty = (localStorage.getItem(STORAGE_KEYS.difficulty) as AIDifficulty | null) ?? "normal";
+    this.difficulty = (readSetting(STORAGE_KEYS.difficulty) as AIDifficulty | null) ?? "normal";
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.isMobile, powerPreference: "high-performance" });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -449,14 +450,14 @@ export class Game {
 
   private setQuality(q: QualityLevel): void {
     this.quality = q;
-    localStorage.setItem(STORAGE_KEYS.quality, q);
+    writeSetting(STORAGE_KEYS.quality, q);
     this.effects.setQuality(QUALITY_PRESETS[q]);
     this.applyRendererQuality();
   }
 
   private setDifficulty(d: AIDifficulty): void {
     this.difficulty = d;
-    localStorage.setItem(STORAGE_KEYS.difficulty, d);
+    writeSetting(STORAGE_KEYS.difficulty, d);
     for (const f of this.fighters) {
       if (f.cpu) f.cpu.difficulty = d;
     }
