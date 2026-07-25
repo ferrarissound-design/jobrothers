@@ -1,0 +1,53 @@
+name: Deploy to GitHub Pages
+
+# The repository only contains TypeScript source, which browsers cannot execute.
+# It must be compiled by Vite before publishing, otherwise the deployed page
+# stays blank. This workflow builds dist/ and publishes that.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deployments at once, but let a queued run finish rather than
+# cancelling it, so main and the live site do not drift apart.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      # vite.config.ts sets base: "./", so dist/ works at any sub-path
+      # (e.g. https://<user>.github.io/<repo>/) with no extra configuration.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
