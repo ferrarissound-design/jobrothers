@@ -338,6 +338,7 @@ export class Game {
 
   private endMatch(playerWon: boolean): void {
     this.phase = "result";
+    this.mobileControls?.setEnabled(false);
     this.audio.play(playerWon ? "win" : "lose");
     this.ui.showResult(playerWon);
     this.loop.setTimeScale(0.25);
@@ -386,8 +387,7 @@ export class Game {
     this.cameraController.update(
       dt,
       this.player.position,
-      this.player.facingAngle,
-      { nearestFighterDist: nearestDist, nearEdge, autoOrbit: this.isMobile },
+      { nearestFighterDist: nearestDist, nearEdge },
       this.stage
     );
   }
@@ -427,6 +427,10 @@ export class Game {
     const lines = [
       `FPS: ${this.fpsDisplay}`,
       `objects: ${this.scene.children.length}  particles: ${this.effects.activeCount}  mines: ${this.combat.mineCount}`,
+      `camera yaw:${((this.cameraController.yaw * 180) / Math.PI).toFixed(1)} pitch:${(
+        (this.cameraController.pitch * 180) /
+        Math.PI
+      ).toFixed(1)}`,
       "",
     ];
     for (const f of this.fighters) {
@@ -446,6 +450,7 @@ export class Game {
 
   private setPaused(paused: boolean): void {
     this.phase = this.phase === "result" ? "result" : paused ? "paused" : "playing";
+    this.mobileControls?.setEnabled(this.phase === "playing");
   }
 
   private setQuality(q: QualityLevel): void {
@@ -478,6 +483,7 @@ export class Game {
   private restart(): void {
     this.matchTime = 0;
     this.phase = "playing";
+    this.mobileControls?.setEnabled(true);
     this.ui.hideResult();
     this.ui.setPaused(false);
     this.loop.setTimeScale(1);
