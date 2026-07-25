@@ -41,6 +41,7 @@ export const GameConfig = {
   gravity: -28,
   fallDeathY: -14,
   arenaRadius: 26,
+  skyColor: 0x87ceeb,
   initialStocks: 3,
   matchTimeLimit: 180, // seconds, 0 = no limit (kept generous for MVP)
   respawnInvulnDuration: 2.2,
