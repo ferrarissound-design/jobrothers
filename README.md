@@ -21,6 +21,35 @@ npm run typecheck # 型チェックのみ実行
 外部サーバーやバックエンドは不要です。`npm run build` 後の `dist/` フォルダは
 そのまま静的ホスティング（GitHub Pages等）に配置して動作します。
 
+## 公開（デプロイ）方法
+
+> **重要:** リポジトリ直下をそのまま静的配信しても動きません（画面が白くなります）。
+> `index.html` が読み込む `src/main.ts` は **TypeScript** のため、ブラウザは実行できず、
+> `.ts` は JavaScript ではない MIME type で配信されてモジュール読み込みが拒否されます。
+> 必ず `npm run build` で生成した `dist/` を配信してください。
+
+### GitHub Pages
+
+`.github/workflows/deploy.yml` により、`main` へのプッシュで自動的にビルドと公開が行われます。
+初回のみ、リポジトリ側で以下の設定が必要です。
+
+1. GitHub の **Settings → Pages** を開く
+2. **Build and deployment → Source** を **「GitHub Actions」** に変更する
+   （「Deploy from a branch」のままだと、ビルドされていない生のソースが配信されて白画面になります）
+
+設定後、`main` にプッシュするか **Actions → Deploy to GitHub Pages → Run workflow** を
+実行すると公開されます。公開URLは Actions の実行結果に表示されます。
+
+### その他の静的ホスティング
+
+```bash
+npm ci
+npm run build     # dist/ が生成される
+```
+
+生成された `dist/` の中身をそのまま配信してください。`vite.config.ts` の `base: "./"` に
+より資産パスは相対参照になっているため、サブディレクトリ配下でもそのまま動作します。
+
 ## 操作方法
 
 ### PC
