@@ -1,3 +1,5 @@
+import { readSetting, writeSetting } from "../utils/storage";
+
 export type SfxName =
   | "lightAttack"
   | "heavyAttack"
@@ -21,7 +23,7 @@ export class AudioManager {
   private noiseBuffer: AudioBuffer | null = null;
 
   constructor() {
-    const stored = localStorage.getItem("joebra_volume");
+    const stored = readSetting("joebra_volume");
     if (stored !== null) this.volume = parseFloat(stored);
   }
 
@@ -46,7 +48,7 @@ export class AudioManager {
   setVolume(v: number): void {
     this.volume = Math.max(0, Math.min(1, v));
     if (this.masterGain) this.masterGain.gain.value = this.volume;
-    localStorage.setItem("joebra_volume", String(this.volume));
+    writeSetting("joebra_volume", String(this.volume));
   }
 
   getVolume(): number {
