@@ -97,10 +97,12 @@ export class MobileControls {
     const dy = touch.clientY - this.lookLast.y;
     this.lookLast = { x: touch.clientX, y: touch.clientY };
     const m = GameConfig.camera.touchLookMultiplier;
-    // Touch drag is a direct-manipulation gesture (drag the world, like a map or
-    // photo viewer), the opposite sign convention from raw mouse-look deltas:
-    // dragging a finger right should turn the view toward what's on the left.
-    this.input.addLookDelta(-dx * m, dy * m);
+    // Same sign as pointer-locked mousemove (handleLook does `yaw -= dx`): drag
+    // right turns the view right. Checked directly against CameraController's
+    // camera math (projected a world-space marker through both signs) since the
+    // orbit position also shifts with yaw, which makes the screen-space effect
+    // of a yaw sign easy to get backwards by reasoning about it by hand.
+    this.input.addLookDelta(dx * m, dy * m);
   }
 
   private onLookEnd(e: TouchEvent): void {
