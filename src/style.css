@@ -324,6 +324,27 @@ html, body {
   display: block;
 }
 
+/* Disabled while a pause/result overlay is up, so its buttons stay reachable.
+   Overrides the individual auto/none rules below via higher specificity. */
+.jb-mobile.jb-mobile-disabled .jb-look-zone,
+.jb-mobile.jb-mobile-disabled .jb-joystick-zone,
+.jb-mobile.jb-mobile-disabled .jb-mbtn {
+  pointer-events: none;
+}
+
+/* Invisible full-area camera drag target. Built first (bottom of the stack),
+   so the joystick zone, action buttons and top HUD bar all paint over their
+   own hit areas and claim touches there first; everywhere else reaches here. */
+.jb-look-zone {
+  position: absolute;
+  top: 46px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: auto;
+  touch-action: none;
+}
+
 .jb-joystick-zone {
   position: absolute;
   left: 0;
@@ -389,6 +410,15 @@ html, body {
 .jb-mbtn-jump { width: 66px; height: 66px; right: 100px; bottom: 128px; background: rgba(80,180,255,.55); }
 .jb-mbtn-guard { width: 58px; height: 58px; right: 170px; bottom: 40px; background: rgba(100,100,100,.55); }
 .jb-mbtn-dodge { width: 58px; height: 58px; right: 178px; bottom: 108px; background: rgba(120,80,220,.55); }
+.jb-mbtn-camreset {
+  width: 34px;
+  height: 34px;
+  top: 6px;
+  left: 6px;
+  font-size: 8px;
+  white-space: pre-line;
+  background: rgba(20,20,30,.55);
+}
 
 @media (max-width: 480px) {
   .jb-panel { min-width: 90px; padding: 4px 6px; }

@@ -95,6 +95,9 @@ export const GameConfig = {
     fov: 60,
     shakeDecay: 6,
     hitStopDuration: 0.06,
+    // Touch drags cover far fewer pixels than a mouse sweep across a desk, so
+    // the same raw delta needs a boost to turn the camera by a comparable amount.
+    touchLookMultiplier: 2.2,
   },
 
   ai: {

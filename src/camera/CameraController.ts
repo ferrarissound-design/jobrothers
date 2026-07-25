@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { GameConfig } from "../config/gameConfig";
-import { clamp, damp, dampAngle } from "../utils/math";
+import { clamp, damp } from "../utils/math";
 import type { Stage } from "../stage/Stage";
 
 export interface CameraFrameContext {
@@ -8,16 +8,21 @@ export interface CameraFrameContext {
   nearestFighterDist: number;
   /** True if the target is close to the stage boundary (helps the player see the fall). */
   nearEdge: boolean;
-  /** When true, camera yaw auto-follows behind facing instead of being mouse-driven (mobile). */
-  autoOrbit: boolean;
 }
 
 /**
- * Third-person follow camera. Orbits around the target with mouse look on
- * desktop (auto-orbiting behind the fighter on mobile), softly pulls back in
+ * Third-person follow camera. Orbits around the target under explicit look
+ * input (mouse drag on desktop, touch drag on mobile), softly pulls back in
  * crowded fights or near the stage edge, and raycasts against the stage so
  * it never clips through scenery. Movement is always damped to avoid motion
  * sickness; a short hit-stop + small shake punctuates landed hits.
+ *
+ * Orbit yaw/pitch are never auto-steered towards the fighter's facing: doing
+ * so used to fight the player's own input on mobile, since movement itself
+ * turns the fighter to face the stick direction — auto-orbiting the camera
+ * onto that facing fed back into camera-relative movement and produced a
+ * hunting/drifting motion instead of a stable view. `reset()` gives players
+ * an explicit way to snap back behind the fighter instead.
  */
 export class CameraController {
   camera: THREE.PerspectiveCamera;
@@ -66,13 +71,8 @@ export class CameraController {
     if (this.hitStopTimer > 0) this.hitStopTimer = Math.max(0, this.hitStopTimer - dt);
   }
 
-  update(dt: number, targetPos: THREE.Vector3, targetFacing: number, ctx: CameraFrameContext, stage: Stage): void {
+  update(dt: number, targetPos: THREE.Vector3, ctx: CameraFrameContext, stage: Stage): void {
     const cfg = GameConfig.camera;
-
-    if (ctx.autoOrbit) {
-      this.yaw = dampAngle(this.yaw, targetFacing, 4, dt);
-      this.pitch = damp(this.pitch, 0.34, 4, dt);
-    }
 
     let desiredDistance = cfg.distance;
     if (ctx.nearEdge) desiredDistance += 1.6;

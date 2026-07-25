@@ -115,6 +115,12 @@ export class InputManager {
     this.moveY = y;
   }
 
+  /** Called by MobileControls' look-drag zone; mirrors the pointer-locked mousemove path. */
+  addLookDelta(dx: number, dy: number): void {
+    this.lookDX += dx;
+    this.lookDY += dy;
+  }
+
   pressAction(action: ActionName): void {
     this.justPressed.add(action);
     if (action === "jump") this.jumpHeld = true;

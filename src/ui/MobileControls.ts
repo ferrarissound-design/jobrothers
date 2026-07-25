@@ -1,4 +1,5 @@
 import type { InputManager } from "../core/InputManager";
+import { GameConfig } from "../config/gameConfig";
 
 export function isMobileDevice(): boolean {
   const coarse = window.matchMedia?.("(pointer: coarse)").matches ?? false;
@@ -16,10 +17,11 @@ interface ButtonSpec {
 const JOYSTICK_RADIUS = 52;
 
 /**
- * Left-side virtual joystick (movement) + right-side action buttons for
- * touch devices. All controls funnel into the same InputManager the
- * keyboard/mouse path uses, and every element is tracked by its own touch
- * identifier so moving, attacking and jumping simultaneously works.
+ * Left-side virtual joystick (movement) + right-side action buttons + a
+ * full-area look-drag zone (camera) for touch devices. All controls funnel
+ * into the same InputManager the keyboard/mouse path uses, and every element
+ * is tracked by its own touch identifier so moving, looking and attacking
+ * simultaneously works.
  */
 export class MobileControls {
   private root: HTMLElement;
@@ -31,18 +33,101 @@ export class MobileControls {
   private joystickTouchId: number | null = null;
   private joystickOrigin = { x: 0, y: 0 };
 
+  private lookZone!: HTMLElement;
+  private lookTouchId: number | null = null;
+  private lookLast = { x: 0, y: 0 };
+
   constructor(container: HTMLElement, input: InputManager) {
     this.input = input;
     this.root = document.createElement("div");
     this.root.className = "jb-mobile";
     container.appendChild(this.root);
 
+    // Built first so it sits at the bottom of the stack: the joystick zone,
+    // buttons and top HUD bar all paint over their own hit areas and claim
+    // touches there first, leaving the look zone everything else.
+    this.buildLookZone();
     this.buildJoystick();
     this.buildButtons();
+    this.buildCameraResetButton();
   }
 
   activate(): void {
     this.root.classList.add("jb-active");
+  }
+
+  /** Disable touch capture (and drop any in-progress touches) while paused/result screens are up, so their buttons remain reachable. */
+  setEnabled(enabled: boolean): void {
+    this.root.classList.toggle("jb-mobile-disabled", !enabled);
+    if (!enabled) {
+      this.joystickTouchId = null;
+      this.joystickBase.style.display = "none";
+      this.joystickStick.style.display = "none";
+      this.input.setMoveAxis(0, 0);
+      this.input.setDashHeld(false);
+      this.lookTouchId = null;
+    }
+  }
+
+  private buildLookZone(): void {
+    const zone = document.createElement("div");
+    zone.className = "jb-look-zone";
+    this.root.appendChild(zone);
+    this.lookZone = zone;
+
+    zone.addEventListener("touchstart", (e) => this.onLookStart(e), { passive: false });
+    zone.addEventListener("touchmove", (e) => this.onLookMove(e), { passive: false });
+    zone.addEventListener("touchend", (e) => this.onLookEnd(e), { passive: false });
+    zone.addEventListener("touchcancel", (e) => this.onLookEnd(e), { passive: false });
+  }
+
+  private onLookStart(e: TouchEvent): void {
+    e.preventDefault();
+    if (this.lookTouchId !== null) return;
+    const touch = e.changedTouches[0];
+    this.lookTouchId = touch.identifier;
+    this.lookLast = { x: touch.clientX, y: touch.clientY };
+  }
+
+  private onLookMove(e: TouchEvent): void {
+    e.preventDefault();
+    const touch = this.findTouch(e.changedTouches, this.lookTouchId);
+    if (!touch) return;
+    const dx = touch.clientX - this.lookLast.x;
+    const dy = touch.clientY - this.lookLast.y;
+    this.lookLast = { x: touch.clientX, y: touch.clientY };
+    const m = GameConfig.camera.touchLookMultiplier;
+    this.input.addLookDelta(dx * m, dy * m);
+  }
+
+  private onLookEnd(e: TouchEvent): void {
+    e.preventDefault();
+    const touch = this.findTouch(e.changedTouches, this.lookTouchId);
+    if (!touch) return;
+    this.lookTouchId = null;
+  }
+
+  private buildCameraResetButton(): void {
+    const btn = document.createElement("div");
+    btn.className = "jb-mbtn jb-mbtn-camreset";
+    btn.textContent = "視点\nリセット";
+    btn.addEventListener(
+      "touchstart",
+      (e) => {
+        e.preventDefault();
+        btn.classList.add("jb-pressed");
+        this.input.pressAction("cameraReset");
+      },
+      { passive: false }
+    );
+    const release = (e: TouchEvent) => {
+      e.preventDefault();
+      btn.classList.remove("jb-pressed");
+    };
+    btn.addEventListener("touchend", release, { passive: false });
+    btn.addEventListener("touchcancel", release, { passive: false });
+    btn.addEventListener("contextmenu", (e) => e.preventDefault());
+    this.root.appendChild(btn);
   }
 
   private buildJoystick(): void {
