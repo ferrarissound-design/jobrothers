@@ -97,7 +97,10 @@ export class MobileControls {
     const dy = touch.clientY - this.lookLast.y;
     this.lookLast = { x: touch.clientX, y: touch.clientY };
     const m = GameConfig.camera.touchLookMultiplier;
-    this.input.addLookDelta(dx * m, dy * m);
+    // Touch drag is a direct-manipulation gesture (drag the world, like a map or
+    // photo viewer), the opposite sign convention from raw mouse-look deltas:
+    // dragging a finger right should turn the view toward what's on the left.
+    this.input.addLookDelta(-dx * m, dy * m);
   }
 
   private onLookEnd(e: TouchEvent): void {
