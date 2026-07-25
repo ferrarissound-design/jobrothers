@@ -486,11 +486,8 @@ export class Game {
     const spawnPoints = this.stage.spawnPoints;
     this.fighters.forEach((f, i) => {
       const c = f.character;
-      c.stocks = GameConfig.initialStocks;
-      c.alive = true;
-      c.group.visible = true;
-      c.resetForRespawn(spawnPoints[i % spawnPoints.length]);
-      c.state = "idle";
+      c.resetForNewMatch(spawnPoints[i % spawnPoints.length]);
+      f.cpu?.reset();
     });
   }
 

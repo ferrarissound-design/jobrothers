@@ -121,10 +121,37 @@ export class Character {
     this.airJumpsUsed = 0;
     this.airDodgeUsed = false;
     this.hitstunTimer = 0;
+    this.hitFlashTimer = 0;
+    this.isGuarding = false;
     this.guardDurability = GameConfig.guard.maxDurability;
+    this.guardBreakTimer = 0;
+    this.guardRegenDelay = 0;
+    this.isDodging = false;
+    this.dodgeTimer = 0;
+    this.dodgeCooldownTimer = 0;
+    this.dodgeInvuln = false;
+    this.isDashing = false;
+    this.dashStamina = GameConfig.dash.staminaMax;
     this.currentAttack = null;
     this.attackPhase = null;
+    this.attackTimer = 0;
     this.hitTargetsThisAttack.clear();
+    this.hyperMode = false;
+    this.hyperModeTimer = 0;
+    this.paralyzedTimer = 0;
+    this.group.scale.set(1, 1, 1);
+    this.syncMesh();
+  }
+
+  /** Restores all stock- and match-scoped state for a completely new match. */
+  resetForNewMatch(spawnPos: THREE.Vector3): void {
+    this.stocks = GameConfig.initialStocks;
+    this.alive = true;
+    this.group.visible = true;
+    this.resetForRespawn(spawnPos);
+    this.attackCooldowns.light = 0;
+    this.attackCooldowns.heavy = 0;
+    this.attackCooldowns.special = 0;
   }
 
   loseStock(): boolean {
