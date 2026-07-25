@@ -52,11 +52,17 @@ html, body {
 .jb-topbar {
   position: absolute;
   top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
+  /* Span the full width and center the contents, rather than centering the bar
+     itself with left:50%. An absolutely positioned box only gets the space
+     between its offset and the container edge, so left:50% caps the shrink-to-fit
+     width at half the viewport — on a narrow phone that squeezed the pause label
+     into three lines and pushed the bar down onto the controls hint. */
+  left: 0;
+  right: 0;
   display: flex;
   gap: 16px;
   align-items: center;
+  justify-content: center;
   color: #fff;
   font-weight: 700;
   text-shadow: 0 2px 4px rgba(0,0,0,.8);
@@ -80,6 +86,8 @@ html, body {
   padding: 6px 12px;
   font-size: 15px;
   font-weight: 700;
+  /* Keep the label on one line; a wrapped button grows the top bar downwards. */
+  white-space: nowrap;
 }
 
 .jb-pause-btn:active, .jb-restart-btn:active {
@@ -389,6 +397,10 @@ html, body {
 }
 
 /* --- mobile HUD layout: keep the bottom-right clear for action buttons --- */
+.jb-hud-mobile .jb-topbar {
+  /* Tighter spacing keeps the bar on one line even on the narrowest phones. */
+  gap: 8px;
+}
 .jb-hud-mobile .jb-controls-hint {
   top: 50px;
   left: 6px;
