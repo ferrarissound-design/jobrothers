@@ -22,11 +22,13 @@ export interface UIManagerOptions {
   isMobile: boolean;
   initialQuality: QualityLevel;
   initialVolume: number;
+  initialMusicVolume: number;
   initialDifficulty: AIDifficulty;
   onPauseToggle: (paused: boolean) => void;
   onRestart: () => void;
   onQualityChange: (q: QualityLevel) => void;
   onVolumeChange: (v: number) => void;
+  onMusicVolumeChange: (v: number) => void;
   onDifficultyChange: (d: AIDifficulty) => void;
 }
 
@@ -168,7 +170,7 @@ export class UIManager {
     const volRow = document.createElement("div");
     volRow.className = "jb-pause-row";
     const volLabel = document.createElement("span");
-    volLabel.textContent = "音量:";
+    volLabel.textContent = "効果音量:";
     const volInput = document.createElement("input");
     volInput.type = "range";
     volInput.min = "0";
@@ -178,6 +180,20 @@ export class UIManager {
     volInput.addEventListener("input", () => this.opts.onVolumeChange(parseFloat(volInput.value)));
     volRow.append(volLabel, volInput);
     overlay.appendChild(volRow);
+
+    const musicVolRow = document.createElement("div");
+    musicVolRow.className = "jb-pause-row";
+    const musicVolLabel = document.createElement("span");
+    musicVolLabel.textContent = "BGM音量:";
+    const musicVolInput = document.createElement("input");
+    musicVolInput.type = "range";
+    musicVolInput.min = "0";
+    musicVolInput.max = "1";
+    musicVolInput.step = "0.05";
+    musicVolInput.value = String(this.opts.initialMusicVolume);
+    musicVolInput.addEventListener("input", () => this.opts.onMusicVolumeChange(parseFloat(musicVolInput.value)));
+    musicVolRow.append(musicVolLabel, musicVolInput);
+    overlay.appendChild(musicVolRow);
 
     const btnRow = document.createElement("div");
     btnRow.className = "jb-pause-row";

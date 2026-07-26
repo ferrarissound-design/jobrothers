@@ -13,18 +13,33 @@ export type SfxName =
   | "lose";
 
 /**
- * Generates all SFX procedurally via the Web Audio API (oscillators + noise buffers).
- * No external audio assets are used, avoiding any copyright concerns.
+ * SFX are generated procedurally via the Web Audio API (oscillators + noise
+ * buffers). Music is the one external asset: an AI-generated track decoded
+ * and looped through its own gain node, independent of the SFX volume.
  */
 export class AudioManager {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  private musicGain: GainNode | null = null;
+  private musicSource: AudioBufferSourceNode | null = null;
+  private musicBuffer: AudioBuffer | null = null;
+  private musicBufferPromise: Promise<AudioBuffer | null> | null = null;
   private volume = 0.6;
+  private musicVolume = 0.5;
+  private musicDucked = false;
   private noiseBuffer: AudioBuffer | null = null;
 
   constructor() {
     const stored = readSetting("joebra_volume");
     if (stored !== null) this.volume = parseFloat(stored);
+    const storedMusic = readSetting("joebra_music_volume");
+    if (storedMusic !== null) this.musicVolume = parseFloat(storedMusic);
+
+    document.addEventListener("visibilitychange", () => {
+      if (!this.ctx) return;
+      if (document.hidden) this.ctx.suspend();
+      else if (this.ctx.state === "suspended") this.ctx.resume();
+    });
   }
 
   private ensureContext(): AudioContext {
@@ -34,6 +49,9 @@ export class AudioManager {
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.value = this.volume;
       this.masterGain.connect(this.ctx.destination);
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.gain.value = this.musicVolume;
+      this.musicGain.connect(this.ctx.destination);
       this.noiseBuffer = this.createNoiseBuffer(this.ctx);
     }
     return this.ctx;
@@ -43,6 +61,7 @@ export class AudioManager {
   resume(): void {
     const ctx = this.ensureContext();
     if (ctx.state === "suspended") ctx.resume();
+    this.startMusicIfReady();
   }
 
   setVolume(v: number): void {
@@ -53,6 +72,55 @@ export class AudioManager {
 
   getVolume(): number {
     return this.volume;
+  }
+
+  /** Fetches and decodes the music track. Safe to call before the AudioContext is unlocked. */
+  preloadMusic(url: string): void {
+    if (this.musicBufferPromise) return;
+    const ctx = this.ensureContext();
+    this.musicBufferPromise = fetch(url)
+      .then((res) => res.arrayBuffer())
+      .then((data) => ctx.decodeAudioData(data))
+      .then((buffer) => {
+        this.musicBuffer = buffer;
+        this.startMusicIfReady();
+        return buffer;
+      })
+      .catch((err) => {
+        console.warn("BGM load failed:", err);
+        return null;
+      });
+  }
+
+  private startMusicIfReady(): void {
+    if (!this.ctx || !this.musicBuffer || this.musicSource || this.ctx.state === "suspended") return;
+    const source = this.ctx.createBufferSource();
+    source.buffer = this.musicBuffer;
+    source.loop = true;
+    source.connect(this.musicGain!);
+    source.start();
+    this.musicSource = source;
+  }
+
+  setMusicVolume(v: number): void {
+    this.musicVolume = Math.max(0, Math.min(1, v));
+    if (this.musicGain && this.ctx) {
+      const target = this.musicDucked ? this.musicVolume * 0.35 : this.musicVolume;
+      this.musicGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.05);
+    }
+    writeSetting("joebra_music_volume", String(this.musicVolume));
+  }
+
+  getMusicVolume(): number {
+    return this.musicVolume;
+  }
+
+  /** Lowers music under the pause/result overlays without fully stopping it. */
+  setMusicDucked(ducked: boolean): void {
+    this.musicDucked = ducked;
+    if (!this.musicGain || !this.ctx) return;
+    const target = ducked ? this.musicVolume * 0.35 : this.musicVolume;
+    this.musicGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.3);
   }
 
   private createNoiseBuffer(ctx: AudioContext): AudioBuffer {
