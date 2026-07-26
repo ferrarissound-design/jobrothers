@@ -13,14 +13,28 @@ export type SfxName =
   | "lose";
 
 /**
- * Generates all SFX procedurally via the Web Audio API (oscillators + noise buffers).
- * No external audio assets are used, avoiding any copyright concerns.
+ * Looping match BGM, streamed from `public/audio` — Vite copies that verbatim
+ * rather than bundling it, which is what a 3.7 MB track wants. `BASE_URL` keeps
+ * the path resolvable under the GitHub Pages sub-path as well as at the root.
+ */
+const MUSIC_URL = `${import.meta.env.BASE_URL}audio/crown_of_the_fallen_king.mp3`;
+
+/** BGM sits under the SFX so hits and specials still cut through it. */
+const MUSIC_LEVEL = 0.4;
+
+/**
+ * Every sound effect is generated procedurally via the Web Audio API
+ * (oscillators + noise buffers) — no sample assets. The only external audio is
+ * the BGM track, streamed through the same master gain so one volume slider
+ * governs everything.
  */
 export class AudioManager {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private volume = 0.6;
   private noiseBuffer: AudioBuffer | null = null;
+  private musicGain: GainNode | null = null;
+  private music: HTMLAudioElement | null = null;
 
   constructor() {
     const stored = readSetting("joebra_volume");
@@ -34,6 +48,9 @@ export class AudioManager {
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.value = this.volume;
       this.masterGain.connect(this.ctx.destination);
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.gain.value = MUSIC_LEVEL;
+      this.musicGain.connect(this.masterGain);
       this.noiseBuffer = this.createNoiseBuffer(this.ctx);
     }
     return this.ctx;
@@ -43,6 +60,33 @@ export class AudioManager {
   resume(): void {
     const ctx = this.ensureContext();
     if (ctx.state === "suspended") ctx.resume();
+    this.startMusic();
+  }
+
+  /**
+   * Starts the looping BGM, once. Called from `resume` rather than at
+   * construction because browsers refuse to start audio before a gesture.
+   *
+   * A missing or unplayable track is not fatal: the match is perfectly
+   * playable with SFX alone, so failures are logged and swallowed.
+   */
+  private startMusic(): void {
+    if (this.music) return;
+    const ctx = this.ensureContext();
+    const el = new Audio(MUSIC_URL);
+    el.loop = true;
+    el.preload = "auto";
+    el.addEventListener("error", () => console.warn(`BGM unavailable: ${MUSIC_URL}`));
+    this.music = el;
+    ctx.createMediaElementSource(el).connect(this.musicGain!);
+    el.play().catch((err) => console.warn("BGM could not start:", err));
+  }
+
+  /** Silences the BGM while the match is paused, leaving SFX (menu blips) audible. */
+  setMusicPaused(paused: boolean): void {
+    if (!this.music) return;
+    if (paused) this.music.pause();
+    else this.music.play().catch((err) => console.warn("BGM could not resume:", err));
   }
 
   setVolume(v: number): void {

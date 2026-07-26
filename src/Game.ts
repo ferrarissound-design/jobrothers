@@ -381,6 +381,8 @@ export class Game {
   private endMatch(playerWon: boolean): void {
     this.phase = "result";
     this.mobileControls?.setEnabled(false);
+    // The BGM steps aside so the win/lose sting is the last thing heard.
+    this.audio.setMusicPaused(true);
     this.audio.play(playerWon ? "win" : "lose");
     this.ui.showResult(playerWon);
     this.loop.setTimeScale(0.25);
@@ -493,6 +495,7 @@ export class Game {
   private setPaused(paused: boolean): void {
     this.phase = this.phase === "result" ? "result" : paused ? "paused" : "playing";
     this.mobileControls?.setEnabled(this.phase === "playing");
+    this.audio.setMusicPaused(this.phase !== "playing");
   }
 
   private setQuality(q: QualityLevel): void {
@@ -528,6 +531,7 @@ export class Game {
     this.mobileControls?.setEnabled(true);
     this.ui.hideResult();
     this.ui.setPaused(false);
+    this.audio.setMusicPaused(false);
     this.loop.setTimeScale(1);
     this.combat.dispose();
     this.stage.resetDestructibles();
