@@ -19,7 +19,11 @@ html, body {
 #app {
   position: relative;
   width: 100vw;
+  width: 100dvw;
+  width: var(--app-vw, 100dvw);
   height: 100vh;
+  height: 100dvh;
+  height: var(--app-vh, 100dvh);
   overflow: hidden;
 }
 
@@ -351,6 +355,8 @@ html, body {
   bottom: 0;
   width: 45vw;
   height: 55vh;
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   pointer-events: auto;
   touch-action: none;
 }
@@ -381,6 +387,8 @@ html, body {
   bottom: 0;
   width: 55vw;
   height: 60vh;
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
   pointer-events: none;
 }
 
