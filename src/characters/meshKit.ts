@@ -5,9 +5,12 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
  * Shared building blocks for the fighter models.
  *
  * The models are still built from Three.js primitives (no external assets), but
- * they use anatomically proportioned skeletons, capsule limbs with real elbow /
- * knee joints and per-surface material properties so they read as characters
- * rather than as stacks of boxes.
+ * they use proportioned skeletons and capsule limbs with real elbow / knee
+ * joints, so they read as characters rather than as stacks of boxes.
+ *
+ * The look is cel shaded: every surface is a `MeshToonMaterial` reading a
+ * stepped gradient ramp, and every mesh carries an inverted-hull ink outline,
+ * so the fighters read as drawn animation cels rather than as lit plastic.
  */
 
 export type Surface =
@@ -23,19 +26,119 @@ export type Surface =
   | "fur"
   | "glow";
 
-const SURFACE_PROPS: Record<Surface, { roughness: number; metalness: number }> = {
-  skin: { roughness: 0.78, metalness: 0.0 },
-  cloth: { roughness: 0.94, metalness: 0.0 },
-  denim: { roughness: 0.99, metalness: 0.0 },
-  leather: { roughness: 0.52, metalness: 0.06 },
-  metal: { roughness: 0.3, metalness: 0.92 },
-  rubber: { roughness: 0.88, metalness: 0.0 },
-  plastic: { roughness: 0.38, metalness: 0.04 },
-  visor: { roughness: 0.1, metalness: 0.7 },
-  card: { roughness: 0.96, metalness: 0.0 },
-  fur: { roughness: 0.92, metalness: 0.0 },
-  glow: { roughness: 0.35, metalness: 0.0 },
+/**
+ * How light is quantised on a surface. Faces get the classic two-tone cel
+ * break, fabric a soft three-tone, hard surfaces an extra band that stands in
+ * for the specular an unlit toon material cannot produce.
+ */
+type Ramp = "face" | "matte" | "hard";
+
+const RAMP_STOPS: Record<Ramp, number[]> = {
+  face: [0.6, 1.0],
+  matte: [0.46, 0.8, 1.0],
+  hard: [0.34, 0.6, 0.85, 1.0],
 };
+
+const SURFACE_RAMP: Record<Surface, Ramp> = {
+  skin: "face",
+  cloth: "matte",
+  denim: "matte",
+  leather: "hard",
+  metal: "hard",
+  rubber: "matte",
+  plastic: "hard",
+  visor: "hard",
+  card: "matte",
+  fur: "face",
+  glow: "face",
+};
+
+const gradientCache = new Map<string, THREE.DataTexture>();
+
+/** Stepped grey ramp used as a toon `gradientMap`; one texture per stop list. */
+function gradientMap(stops: number[]): THREE.DataTexture {
+  const key = stops.join(",");
+  let texture = gradientCache.get(key);
+  if (!texture) {
+    const data = new Uint8Array(stops.length * 4);
+    stops.forEach((stop, i) => {
+      const v = Math.round(THREE.MathUtils.clamp(stop, 0, 1) * 255);
+      data.set([v, v, v, 255], i * 4);
+    });
+    texture = new THREE.DataTexture(data, stops.length, 1, THREE.RGBAFormat);
+    texture.minFilter = THREE.NearestFilter;
+    texture.magFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+    texture.needsUpdate = true;
+    gradientCache.set(key, texture);
+  }
+  return texture;
+}
+
+/** Per-vertex ink width, written by `ModelKit` and read by the outline shader. */
+const INK_ATTRIBUTE = "inkWidth";
+
+const OUTLINE_VERTEX = /* glsl */ `
+  attribute float ${INK_ATTRIBUTE};
+  void main() {
+    vec4 view = modelViewMatrix * vec4(position, 1.0);
+    view.xyz += normalize(normalMatrix * normal) * ${INK_ATTRIBUTE};
+    gl_Position = projectionMatrix * view;
+  }
+`;
+
+const OUTLINE_FRAGMENT = /* glsl */ `
+  uniform vec3 inkColor;
+  void main() {
+    gl_FragColor = vec4(inkColor, 1.0);
+  }
+`;
+
+/**
+ * Draws an ink line around every mesh under `root` by rendering a back-faced
+ * copy pushed out along its normals — the standard inverted-hull trick. The
+ * push happens in view space so that a squashed or mirrored part still gets an
+ * even line, which a scaled-up clone could not give.
+ *
+ * Line width is per vertex (tagged in `ModelKit.build`, rescaled in
+ * `scaleInk`) rather than global: one width for a whole fighter would swallow
+ * whiskers, seam tape and mouth lines in ink.
+ *
+ * Call this once the model is fully baked — the outline meshes share the baked
+ * geometry, so there is nothing left for a later merge to get wrong.
+ */
+export function addOutlines(root: THREE.Object3D, ink = 0x1d1512): void {
+  const material = new THREE.ShaderMaterial({
+    uniforms: { inkColor: { value: new THREE.Color(ink) } },
+    vertexShader: OUTLINE_VERTEX,
+    fragmentShader: OUTLINE_FRAGMENT,
+    side: THREE.BackSide,
+  });
+
+  // Collected up front: adding children while traversing would re-enter the
+  // outline meshes and outline the outlines.
+  const meshes: THREE.Mesh[] = [];
+  root.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    // Transparent surfaces (visors, lenses) would show their own hull through
+    // themselves, so they stay un-inked.
+    if (
+      mesh.isMesh &&
+      !Array.isArray(mesh.material) &&
+      !mesh.material.transparent &&
+      mesh.geometry.hasAttribute(INK_ATTRIBUTE)
+    ) {
+      meshes.push(mesh);
+    }
+  });
+
+  for (const mesh of meshes) {
+    const outline = new THREE.Mesh(mesh.geometry, material);
+    outline.castShadow = false;
+    outline.receiveShadow = false;
+    mesh.add(outline);
+  }
+}
 
 /** Drops a decoration out of the shadow pass — small parts never read in the shadow map. */
 export function noShadow<T extends THREE.Object3D>(obj: T): T {
@@ -88,7 +191,7 @@ export function bakeStatic(group: THREE.Object3D, skip: THREE.Object3D[] = []): 
           };
           buckets.set(key, bucket);
         }
-        bucket.geometries.push(mesh.geometry.clone().applyMatrix4(matrix));
+        bucket.geometries.push(scaleInk(mesh.geometry.clone().applyMatrix4(matrix), matrix));
         mesh.geometry.dispose();
       }
       collect(child, matrix);
@@ -113,6 +216,28 @@ export function bakeStatic(group: THREE.Object3D, skip: THREE.Object3D[] = []): 
   for (const child of kept) group.add(child);
 }
 
+/**
+ * Brings a part's ink budget into world units once baking has applied its
+ * transform. Parts are authored as spheres and boxes and then squashed into
+ * place — an eye is a ball flattened to a disc — so a width chosen from the
+ * unscaled primitive would ink the flattened result far too heavily. The
+ * smallest axis scale is the safe one: it under-inks rather than smears.
+ */
+function scaleInk(geometry: THREE.BufferGeometry, matrix: THREE.Matrix4): THREE.BufferGeometry {
+  const ink = geometry.getAttribute(INK_ATTRIBUTE);
+  if (!ink) return geometry;
+  const m = matrix.elements;
+  const scale = Math.min(
+    Math.hypot(m[0], m[1], m[2]),
+    Math.hypot(m[4], m[5], m[6]),
+    Math.hypot(m[8], m[9], m[10])
+  );
+  const values = ink.array as Float32Array;
+  for (let i = 0; i < values.length; i++) values[i] *= scale;
+  ink.needsUpdate = true;
+  return geometry;
+}
+
 /** Bakes each segment of a limb, keeping the joints that the animation drives. */
 export function bakeLimb(limb: Limb): void {
   bakeStatic(limb.tip);
@@ -120,20 +245,26 @@ export function bakeLimb(limb: Limb): void {
   bakeStatic(limb.root, [limb.joint]);
 }
 
-/** Anatomical joint heights (in world units) for a humanoid of the given total height. */
+/**
+ * Joint heights (in world units) for a humanoid of the given total height.
+ *
+ * Stylised rather than anatomical: the skeleton is stretched towards the ~6
+ * heads-tall build animation uses — long legs, a short torso and a head that
+ * takes a sixth of the figure — instead of the 7.5 heads of a real adult.
+ */
 export function humanProportions(height: number) {
   return {
     height,
-    ankle: height * 0.048,
-    knee: height * 0.285,
-    hip: height * 0.52,
-    waist: height * 0.6,
-    chest: height * 0.72,
-    shoulder: height * 0.815,
-    neck: height * 0.855,
-    chin: height * 0.87,
-    /** Eye line sits mid-head on a real skull. */
-    eye: height * 0.935,
+    ankle: height * 0.045,
+    knee: height * 0.275,
+    hip: height * 0.505,
+    waist: height * 0.585,
+    chest: height * 0.7,
+    shoulder: height * 0.788,
+    neck: height * 0.822,
+    chin: height * 0.835,
+    /** Eye line sits low on a stylised head — the big-eyed animation convention. */
+    eye: height * 0.9,
     crown: height,
   };
 }
@@ -171,9 +302,12 @@ export interface Limb {
  * count of a four-fighter match low.
  */
 export class ModelKit {
-  private readonly cache = new Map<string, THREE.MeshStandardMaterial>();
+  private readonly cache = new Map<string, THREE.MeshToonMaterial>();
 
-  material(color: number, surface: Surface = "cloth"): THREE.MeshStandardMaterial {
+  /** @param ink Widest ink line this character's parts may carry, world units. */
+  constructor(private readonly ink = 0.007) {}
+
+  material(color: number, surface: Surface = "cloth"): THREE.MeshToonMaterial {
     const key = `${color}|${surface}`;
     let material = this.cache.get(key);
     if (!material) {
@@ -184,12 +318,10 @@ export class ModelKit {
   }
 
   /** An uncached material, for meshes whose colour or emissive is animated. */
-  uniqueMaterial(color: number, surface: Surface = "cloth"): THREE.MeshStandardMaterial {
-    const props = SURFACE_PROPS[surface];
-    const material = new THREE.MeshStandardMaterial({
+  uniqueMaterial(color: number, surface: Surface = "cloth"): THREE.MeshToonMaterial {
+    const material = new THREE.MeshToonMaterial({
       color,
-      roughness: props.roughness,
-      metalness: props.metalness,
+      gradientMap: gradientMap(RAMP_STOPS[SURFACE_RAMP[surface]]),
     });
     if (surface === "glow") {
       material.emissive = new THREE.Color(color);
@@ -277,28 +409,55 @@ export class ModelKit {
     return this.build(new THREE.TorusGeometry(r, tube, 6, 16, arc), color, surface);
   }
 
-  /** A whole eye: sclera, iris, pupil and a catch light. Looks down +Z. */
-  eye(radius: number, iris: number, pupil = 0x140f0c): THREE.Group {
+  /**
+   * A whole eye, drawn the way animation draws them: a tall oval that is mostly
+   * iris, a heavy upper lash line, and two catch lights — a big one opposite
+   * the key light and a small one below it. `radius` is the half-width; the eye
+   * stands about 1.4x that tall. Looks down +Z.
+   */
+  eye(radius: number, iris: number, pupil = 0x140f0c, lash = 0x241a17): THREE.Group {
     const group = new THREE.Group();
 
-    const sclera = this.sphere(radius, 0xf3efe7, "skin", 12);
-    sclera.scale.set(1, 1, 0.72);
+    // The eye is layered like a painted cel: every layer sits strictly in front
+    // of the one behind it, because a flattened sphere tucked *inside* the
+    // sclera would simply be hidden by it.
+    const sclera = this.sphere(radius, 0xf7f4ee, "skin", 12);
+    sclera.scale.set(1, 1.35, 0.3);
     group.add(sclera);
 
-    const irisMesh = this.sphere(radius * 0.52, iris, "plastic", 10);
-    irisMesh.position.z = radius * 0.6;
-    irisMesh.scale.set(1, 1, 0.35);
+    // A darker rim around the iris, the way cels ink the outer edge.
+    const rimColor = new THREE.Color(iris).multiplyScalar(0.4).getHex();
+    const irisRim = this.sphere(radius * 0.66, rimColor, "plastic", 12);
+    irisRim.position.set(0, -radius * 0.16, radius * 0.26);
+    irisRim.scale.set(1, 1.7, 0.1);
+    group.add(irisRim);
+
+    // A tall iris with white showing either side of it — the drawn eye shape.
+    const irisMesh = this.sphere(radius * 0.56, iris, "plastic", 12);
+    irisMesh.position.set(0, -radius * 0.16, radius * 0.3);
+    irisMesh.scale.set(1, 1.8, 0.1);
     group.add(irisMesh);
 
-    const pupilMesh = this.sphere(radius * 0.26, pupil, "plastic", 8);
-    pupilMesh.position.z = radius * 0.74;
-    pupilMesh.scale.set(1, 1, 0.35);
+    const pupilMesh = this.sphere(radius * 0.26, pupil, "plastic", 10);
+    pupilMesh.position.set(0, -radius * 0.16, radius * 0.34);
+    pupilMesh.scale.set(1, 1.9, 0.1);
     group.add(pupilMesh);
 
-    const glint = this.sphere(radius * 0.16, 0xffffff, "glow", 6);
-    glint.position.set(radius * 0.26, radius * 0.3, radius * 0.76);
-    glint.scale.set(1, 1, 0.3);
+    const glint = this.sphere(radius * 0.24, 0xffffff, "glow", 8);
+    glint.position.set(radius * 0.2, radius * 0.4, radius * 0.38);
+    glint.scale.set(1, 1.1, 0.08);
     group.add(glint);
+
+    const spark = this.sphere(radius * 0.12, 0xffffff, "glow", 6);
+    spark.position.set(-radius * 0.2, -radius * 0.72, radius * 0.38);
+    spark.scale.set(1, 1, 0.08);
+    group.add(spark);
+
+    // heavy upper lash line — the single strongest anime cue on a face
+    const lid = this.sphere(radius, lash, "skin", 12);
+    lid.position.set(0, radius * 1.24, radius * 0.12);
+    lid.scale.set(1.02, 0.19, 0.42);
+    group.add(lid);
 
     return noShadow(group);
   }
@@ -341,9 +500,24 @@ export class ModelKit {
   }
 
   private build(geometry: THREE.BufferGeometry, color: number, surface: Surface): THREE.Mesh {
+    this.tagInkWidth(geometry);
     const mesh = new THREE.Mesh(geometry, this.material(color, surface));
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     return mesh;
+  }
+
+  /**
+   * Records how thick this part's ink line may be, before baking merges it into
+   * its neighbours. The budget comes from the part's *thinnest* dimension: a
+   * whisker or a strip of packing tape is thinner than the line a torso wants,
+   * and inking it at full width would turn it into a black smear.
+   */
+  private tagInkWidth(geometry: THREE.BufferGeometry): void {
+    geometry.computeBoundingBox();
+    const size = geometry.boundingBox!.getSize(new THREE.Vector3());
+    const width = Math.min(this.ink, Math.min(size.x, size.y, size.z) * 0.35);
+    const count = geometry.getAttribute("position").count;
+    geometry.setAttribute(INK_ATTRIBUTE, new THREE.BufferAttribute(new Float32Array(count).fill(width), 1));
   }
 }

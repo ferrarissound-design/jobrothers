@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { CharacterDef } from "./characterData";
-import { bakeLimb, bakeStatic, humanProportions, ModelKit, noShadow, type Limb } from "./meshKit";
+import { addOutlines, bakeLimb, bakeStatic, humanProportions, ModelKit, noShadow, type Limb } from "./meshKit";
 
 export interface CharacterParts {
   root: THREE.Group;
@@ -14,19 +14,33 @@ export interface CharacterParts {
   extra?: THREE.Object3D; // tail / fin / backpack etc.
 }
 
+/** Widest ink line on a fighter, as a fraction of its height. */
+const INK_SCALE = 0.0045;
+
 /**
  * Builds a character model out of Three.js primitives — no external assets.
  *
- * Every fighter is assembled on an anatomically proportioned skeleton scaled to
- * its `stats.height`, with capsule limbs that pivot at the shoulder and hip and
+ * Every fighter is assembled on a stylised skeleton scaled to its
+ * `stats.height`, with capsule limbs that pivot at the shoulder and hip and
  * bend at the elbow and knee, so the walk and swing animations move joints that
  * actually exist. The designs stay original silhouettes that only evoke a
  * "plumber", "electric rodent", "speedster" and "cardboard soldier" archetype.
+ *
+ * The styling target is TV animation rather than realism: roughly six heads
+ * tall, oversized eyes, hair in flat clumps with a highlight band, cel-stepped
+ * shading and an ink outline around every mesh (added here, after baking, so
+ * the merge step cannot swallow the outline copies).
  *
  * Arms and legs are named from the character's own point of view: the right
  * limb sits on -X, which is screen-left while the fighter faces the camera.
  */
 export function createCharacterMesh(def: CharacterDef): CharacterParts {
+  const parts = buildParts(def);
+  addOutlines(parts.root);
+  return parts;
+}
+
+function buildParts(def: CharacterDef): CharacterParts {
   switch (def.id) {
     case "jorio":
       return buildJorio(def);
@@ -49,9 +63,10 @@ function mirrorLimb(limb: Limb): void {
 // ---------------------------------------------------------------------------
 
 function buildJorio(def: CharacterDef): CharacterParts {
-  const kit = new ModelKit();
+  const kit = new ModelKit(def.stats.height * INK_SCALE);
   const { primary, secondary, accent, skin } = def.palette;
   const hair = 0x4a3222;
+  const hairLit = 0x7d5a3c;
   const glove = 0xe4ded2;
   const boot = 0x4a3524;
 
@@ -120,79 +135,116 @@ function buildJorio(def: CharacterDef): CharacterParts {
   neck.position.y = p.neck - p.hip - 0.02;
   body.add(neck);
 
-  // --- head ---
+  // --- head (a sixth of the figure, the animation proportion) ---
   const headY = (p.chin + p.crown) / 2;
-  const r = H * 0.072;
+  const r = H * 0.082;
   const head = new THREE.Group();
   head.position.y = headY;
   root.add(head);
 
   const skull = kit.sphere(r, skin, "skin", 16);
-  skull.scale.set(0.88, 1, 0.94);
+  skull.scale.set(0.94, 1, 0.92);
   head.add(skull);
 
-  const jaw = kit.sphere(r * 0.72, skin, "skin", 12);
-  jaw.scale.set(0.86, 0.72, 0.92);
-  jaw.position.set(0, -r * 0.42, r * 0.16);
+  // tapered chin — the jaw narrows instead of squaring off
+  const jaw = kit.sphere(r * 0.66, skin, "skin", 12);
+  jaw.scale.set(0.82, 0.6, 0.9);
+  jaw.position.set(0, -r * 0.46, r * 0.14);
   head.add(noShadow(jaw));
 
-  const backHair = kit.sphere(r * 1.02, hair, "fur", 14);
-  backHair.scale.set(0.92, 0.86, 0.9);
+  const backHair = kit.sphere(r * 1.03, hair, "fur", 14);
+  backHair.scale.set(0.96, 0.88, 0.92);
   backHair.position.set(0, -r * 0.08, -r * 0.1);
   head.add(noShadow(backHair));
 
-  const nose = kit.sphere(r * 0.25, skin, "skin", 10);
-  nose.scale.set(0.9, 1.05, 1.3);
-  nose.position.set(0, -r * 0.18, r * 0.84);
+  // the flat highlight band cels paint across hair
+  const hairShine = kit.shell(r * 1.06, hairLit, "fur", {
+    phiStart: Math.PI * 0.62,
+    phiLength: Math.PI * 0.76,
+    thetaStart: Math.PI * 0.3,
+    thetaLength: Math.PI * 0.12,
+    seg: 14,
+  });
+  hairShine.scale.copy(backHair.scale);
+  hairShine.position.copy(backHair.position);
+  head.add(noShadow(hairShine));
+
+  const nose = kit.sphere(r * 0.16, skin, "skin", 10);
+  nose.scale.set(0.85, 0.95, 1.2);
+  nose.position.set(0, -r * 0.22, r * 0.84);
   head.add(noShadow(nose));
 
-  const mouth = kit.box(r * 0.34, r * 0.08, r * 0.12, 0x7a4038, "skin");
-  mouth.position.set(0, -r * 0.62, r * 0.76);
+  // an inked smile rather than a slot cut in the face
+  const mouth = kit.torusArc(r * 0.14, r * 0.03, Math.PI, 0x6a3630, "skin");
+  mouth.rotation.set(0, 0, Math.PI);
+  mouth.position.set(0, -r * 0.52, r * 0.78);
   head.add(noShadow(mouth));
 
   for (const side of [-1, 1]) {
-    const eye = kit.eye(r * 0.2, 0x4a6b3a);
-    eye.position.set(side * r * 0.42, r * 0.06, r * 0.78);
-    eye.rotation.y = side * 0.26;
+    const eye = kit.eye(r * 0.22, 0x3f7a44);
+    eye.position.set(side * r * 0.4, -r * 0.08, r * 0.74);
+    eye.rotation.y = side * 0.24;
     head.add(eye);
 
-    const brow = kit.box(r * 0.34, r * 0.09, r * 0.09, hair, "fur");
-    brow.position.set(side * r * 0.42, r * 0.28, r * 0.8);
-    brow.rotation.z = side * -0.18;
+    // thin, angled brow — the whole expression rides on it
+    const brow = kit.box(r * 0.38, r * 0.07, r * 0.08, hair, "fur");
+    brow.position.set(side * r * 0.4, r * 0.3, r * 0.76);
+    brow.rotation.z = side * -0.2;
     head.add(noShadow(brow));
 
-    const ear = kit.sphere(r * 0.26, skin, "skin", 8);
-    ear.scale.set(0.4, 1, 0.7);
-    ear.position.set(side * r * 0.86, -r * 0.12, -r * 0.02);
+    const ear = kit.sphere(r * 0.24, skin, "skin", 8);
+    ear.scale.set(0.38, 1, 0.7);
+    ear.position.set(side * r * 0.9, -r * 0.16, -r * 0.02);
     head.add(noShadow(ear));
 
-    // bushy moustache, one half per side
-    const stache = kit.capsule(r * 0.11, r * 0.4, hair, "fur", 8);
-    stache.rotation.set(0.15, 0, side * 1.3);
-    stache.position.set(side * r * 0.2, -r * 0.42, r * 0.76);
+    // moustache: one flat clump per side, swept out from under the nose
+    const stache = kit.sphere(r * 0.17, hair, "fur", 10);
+    stache.scale.set(1.5, 0.42, 0.5);
+    stache.rotation.z = side * 0.3;
+    stache.position.set(side * r * 0.19, -r * 0.38, r * 0.78);
     head.add(noShadow(stache));
+
+    // sideburn clump hanging in front of the ear
+    const sideburn = kit.cone(r * 0.16, r * 0.34, hair, "fur", 4);
+    sideburn.scale.set(0.55, 1, 0.9);
+    sideburn.position.set(side * r * 0.76, -r * 0.1, r * 0.12);
+    sideburn.rotation.set(0, 0, Math.PI + side * 0.16);
+    head.add(noShadow(sideburn));
+
+    // fringe: two clumps of hair escaping from under the cap band
+    for (let i = 0; i < 2; i++) {
+      const spike = kit.cone(r * 0.15, r * 0.3, hair, "fur", 4);
+      spike.scale.set(1, 1, 0.55);
+      spike.position.set(side * r * (0.52 + i * 0.24), r * 0.3, r * (0.68 - i * 0.22));
+      spike.rotation.set(0, side * i * 0.5, Math.PI + side * (0.3 + i * 0.2));
+      head.add(noShadow(spike));
+    }
   }
 
+  // The cap rides high and its brim tips up: a brim angled down for realism
+  // shades out the eyes, and with eyes this size that costs the whole face.
+  // The cap is kept out of the shadow pass: a hard shadow map edge dropped
+  // across the eyes is exactly the modelling anime never does to a face.
   const cap = kit.dome(r * 1.05, primary, "cloth", 16);
-  cap.scale.set(0.95, 0.78, 1);
-  cap.position.y = r * 0.3;
-  head.add(cap);
+  cap.scale.set(0.95, 0.72, 1);
+  cap.position.y = r * 0.46;
+  head.add(noShadow(cap));
 
   // sweatband hides the dome's cut edge
   const capBand = kit.cylinder(r * 1.06, r * 1.06, r * 0.16, primary, "cloth", 16, true);
   capBand.scale.set(0.95, 1, 1);
-  capBand.position.y = r * 0.3;
+  capBand.position.y = r * 0.46;
   head.add(noShadow(capBand));
 
   const brim = kit.halfDisc(r * 0.9, r * 0.07, primary, "cloth", 16);
   brim.scale.set(1.06, 1, 1.5);
-  brim.position.set(0, r * 0.28, r * 0.34);
-  brim.rotation.x = 0.34;
-  head.add(brim);
+  brim.position.set(0, r * 0.44, r * 0.36);
+  brim.rotation.x = 0.12;
+  head.add(noShadow(brim));
 
   const emblem = kit.cylinder(r * 0.24, r * 0.24, r * 0.06, accent, "plastic", 12);
   emblem.rotation.x = Math.PI / 2;
-  emblem.position.set(0, r * 0.62, r * 0.76);
+  emblem.position.set(0, r * 0.74, r * 0.72);
   head.add(noShadow(emblem));
 
   // --- limbs ---
@@ -311,7 +363,7 @@ function buildJorio(def: CharacterDef): CharacterParts {
 // ---------------------------------------------------------------------------
 
 function buildBirinezu(def: CharacterDef): CharacterParts {
-  const kit = new ModelKit();
+  const kit = new ModelKit(def.stats.height * INK_SCALE);
   const { primary, secondary, accent } = def.palette;
   const cream = 0xfff3c4;
   const innerEar = 0xd88f8f;
@@ -358,10 +410,10 @@ function buildBirinezu(def: CharacterDef): CharacterParts {
 
   // --- head ---
   const head = new THREE.Group();
-  head.position.y = H * 0.75;
+  head.position.y = H * 0.74;
   root.add(head);
 
-  const r = H * 0.16;
+  const r = H * 0.17;
   const skull = kit.sphere(r, primary, "fur", 16);
   skull.scale.set(1, 0.95, 1);
   head.add(skull);
@@ -377,20 +429,21 @@ function buildBirinezu(def: CharacterDef): CharacterParts {
   head.add(noShadow(nose));
 
   const mouth = kit.torusArc(r * 0.2, r * 0.035, Math.PI, 0x241d1a, "plastic");
-  mouth.rotation.set(Math.PI * 0.5, 0, Math.PI);
-  mouth.position.set(0, -r * 0.5, r * 0.92);
+  mouth.rotation.set(0, 0, Math.PI);
+  mouth.position.set(0, -r * 0.46, r * 1.02);
   head.add(noShadow(mouth));
 
   for (const side of [-1, 1]) {
-    const eye = kit.eye(r * 0.28, 0x2a1a12);
-    eye.position.set(side * r * 0.44, r * 0.12, r * 0.8);
+    // mascot eyes: nearly all pupil, with the big catch light the kit draws
+    const eye = kit.eye(r * 0.3, 0x3b2418, 0x120c08);
+    eye.position.set(side * r * 0.46, r * 0.14, r * 0.78);
     eye.rotation.y = side * 0.3;
     head.add(eye);
 
     // spark cheek
     const cheek = kit.sphere(r * 0.33, accent, "glow", 10);
     cheek.scale.set(1, 1, 0.5);
-    cheek.position.set(side * r * 0.72, -r * 0.26, r * 0.52);
+    cheek.position.set(side * r * 0.76, -r * 0.36, r * 0.5);
     head.add(noShadow(cheek));
 
     // whiskers
@@ -398,7 +451,7 @@ function buildBirinezu(def: CharacterDef): CharacterParts {
       const whisker = kit.cylinder(0.004, 0.002, r * 0.9, 0x3c3428, "fur", 4);
       whisker.rotation.set(0, 0, side * (Math.PI / 2 - 0.15));
       whisker.rotation.x = (i - 1) * 0.18;
-      whisker.position.set(side * (r * 0.75 + r * 0.4), -r * 0.22 + (i - 1) * r * 0.12, r * 0.62);
+      whisker.position.set(side * (r * 0.95 + r * 0.45), -r * 0.06 + (i - 1) * r * 0.12, r * 0.58);
       head.add(noShadow(whisker));
     }
 
@@ -539,7 +592,7 @@ function buildBirinezu(def: CharacterDef): CharacterParts {
 // ---------------------------------------------------------------------------
 
 function buildHayasugi(def: CharacterDef): CharacterParts {
-  const kit = new ModelKit();
+  const kit = new ModelKit(def.stats.height * INK_SCALE);
   const { primary, secondary, accent, skin } = def.palette;
   const thrust = 0x9fd8ff;
 
@@ -624,14 +677,14 @@ function buildHayasugi(def: CharacterDef): CharacterParts {
 
   // --- helmet ---
   const headY = (p.chin + p.crown) / 2;
-  const r = H * 0.07;
+  const r = H * 0.08;
   const head = new THREE.Group();
   head.position.y = headY;
   root.add(head);
 
-  const jaw = kit.sphere(r * 0.72, skin, "skin", 12);
-  jaw.scale.set(0.84, 0.8, 0.94);
-  jaw.position.set(0, -r * 0.46, r * 0.14);
+  const jaw = kit.sphere(r * 0.68, skin, "skin", 12);
+  jaw.scale.set(0.8, 0.74, 0.92);
+  jaw.position.set(0, -r * 0.52, r * 0.12);
   head.add(jaw);
 
   const helmet = kit.sphere(r, primary, "plastic", 16);
@@ -647,6 +700,33 @@ function buildHayasugi(def: CharacterDef): CharacterParts {
   });
   visor.scale.set(0.98, 1.04, 1.04);
   head.add(noShadow(visor));
+
+  // eyes read through the visor as two lit slits — the mecha-pilot convention
+  for (const side of [-1, 1]) {
+    const glowEye = kit.sphere(r * 0.3, 0x9ff4ff, "glow", 10);
+    glowEye.scale.set(1.35, 0.62, 0.22);
+    glowEye.position.set(side * r * 0.38, -r * 0.02, r * 0.95);
+    glowEye.rotation.z = side * 0.26;
+    head.add(noShadow(glowEye));
+  }
+
+  // the pair of slanted highlight streaks a cel painter puts on a visor: narrow
+  // bands lifted off the helmet surface, then tipped over so they run diagonally
+  for (const [offset, width] of [
+    [0.62, 0.13],
+    [0.4, 0.06],
+  ]) {
+    const streak = kit.shell(r * 1.05, 0xdff1ff, "glow", {
+      phiStart: Math.PI / 2 + offset,
+      phiLength: width,
+      thetaStart: Math.PI * 0.34,
+      thetaLength: Math.PI * 0.22,
+      seg: 10,
+    });
+    streak.scale.set(0.98, 1.04, 1.04);
+    streak.rotation.z = -0.5;
+    head.add(noShadow(streak));
+  }
 
   const crestBase = kit.shell(r * 1.02, secondary, "plastic", {
     phiStart: -Math.PI / 2 - 0.09,
@@ -786,7 +866,7 @@ function buildHayasugi(def: CharacterDef): CharacterParts {
 // ---------------------------------------------------------------------------
 
 function buildDanboru(def: CharacterDef): CharacterParts {
-  const kit = new ModelKit();
+  const kit = new ModelKit(def.stats.height * INK_SCALE);
   const { primary, secondary, accent, skin } = def.palette;
   const suit = skin; // dark bodysuit tone
   const tape = 0xd9cbb0;
@@ -898,7 +978,7 @@ function buildDanboru(def: CharacterDef): CharacterParts {
 
   // --- head: balaclava, helmet, goggles ---
   const headY = (p.chin + p.crown) / 2;
-  const r = H * 0.07;
+  const r = H * 0.08;
   const head = new THREE.Group();
   head.position.y = headY;
   root.add(head);
@@ -909,29 +989,46 @@ function buildDanboru(def: CharacterDef): CharacterParts {
 
   const helmet = kit.dome(r * 1.06, olive, "plastic", 16);
   helmet.scale.set(0.98, 0.92, 1.02);
-  helmet.position.y = r * 0.06;
-  head.add(helmet);
+  helmet.position.y = r * 0.16;
+  head.add(noShadow(helmet));
 
   const helmetBrim = kit.halfDisc(r * 1.12, r * 0.1, olive, "plastic", 14);
   helmetBrim.scale.set(0.98, 1, 1.05);
-  helmetBrim.position.set(0, r * 0.12, r * 0.1);
+  helmetBrim.position.set(0, r * 0.22, r * 0.1);
   helmetBrim.rotation.x = 0.1;
   head.add(noShadow(helmetBrim));
 
-  const goggleStrap = kit.cylinder(r * 1.02, r * 1.02, r * 0.26, 0x24241f, "rubber", 14, true);
-  goggleStrap.scale.set(0.92, 1, 0.97);
-  goggleStrap.position.y = r * 0.16;
+  // the strap rides the helmet with the goggles it belongs to
+  const goggleStrap = kit.cylinder(r * 1.07, r * 1.07, r * 0.2, 0x24241f, "rubber", 14, true);
+  goggleStrap.scale.set(0.98, 1, 1.02);
+  goggleStrap.position.y = r * 0.4;
   head.add(noShadow(goggleStrap));
 
+  // Goggles ride up on the helmet so the face underneath stays readable — a
+  // fighter the player never sees the eyes of reads as a prop, not a character.
   for (const side of [-1, 1]) {
-    const lens = kit.cylinder(r * 0.3, r * 0.3, r * 0.12, accent, "visor", 12);
+    const lens = kit.cylinder(r * 0.28, r * 0.28, r * 0.12, accent, "visor", 12);
     lens.rotation.x = Math.PI / 2;
-    lens.position.set(side * r * 0.34, r * 0.16, r * 0.82);
+    lens.position.set(side * r * 0.34, r * 0.42, r * 0.93);
     head.add(noShadow(lens));
 
-    const rim = kit.torusArc(r * 0.32, r * 0.05, Math.PI * 2, 0x24241f, "rubber");
-    rim.position.set(side * r * 0.34, r * 0.16, r * 0.78);
+    const rim = kit.torusArc(r * 0.3, r * 0.05, Math.PI * 2, 0x24241f, "rubber");
+    rim.position.set(side * r * 0.34, r * 0.42, r * 0.89);
     head.add(noShadow(rim));
+
+    // painted-on lens glare: the diagonal double streak of a drawn goggle
+    for (let i = 0; i < 2; i++) {
+      const glare = kit.box(r * 0.06 - i * r * 0.025, r * 0.3 - i * r * 0.1, r * 0.02, 0xf2fbff, "glow");
+      glare.position.set(side * r * 0.34 - r * 0.11 + i * r * 0.1, r * 0.44, r * 1.01);
+      glare.rotation.z = 0.6;
+      head.add(noShadow(glare));
+    }
+
+    // sharp pale eyes cut out of the balaclava
+    const eye = kit.eye(r * 0.2, 0x9fc7e8, 0x101418);
+    eye.position.set(side * r * 0.38, -r * 0.12, r * 0.76);
+    eye.rotation.y = side * 0.22;
+    head.add(eye);
   }
 
   const mask = kit.sphere(r * 0.7, 0x2c2c28, "cloth", 10);
