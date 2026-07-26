@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { CharacterDef } from "./characterData";
-import { addOutlines, bakeLimb, bakeStatic, humanProportions, ModelKit, noShadow, type Limb } from "./meshKit";
+import { addOutlines } from "../render/celShading";
+import { bakeLimb, bakeStatic, humanProportions, ModelKit, noShadow, type Limb } from "./meshKit";
 
 export interface CharacterParts {
   root: THREE.Group;
@@ -14,8 +15,12 @@ export interface CharacterParts {
   extra?: THREE.Object3D; // tail / fin / backpack etc.
 }
 
-/** Widest ink line on a fighter, as a fraction of its height. */
-const INK_SCALE = 0.0045;
+/**
+ * Widest ink line on a fighter, as a fraction of its height, at the depth the
+ * outline shader normalises to. Slightly finer than the line the stage carries,
+ * since a fighter is a smaller object holding much more detail.
+ */
+const INK_SCALE = 0.008;
 
 /**
  * Builds a character model out of Three.js primitives — no external assets.

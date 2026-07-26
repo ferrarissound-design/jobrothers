@@ -3,6 +3,7 @@ import { GameConfig, type QualitySettings } from "../config/gameConfig";
 import { DestructibleObject } from "./DestructibleObject";
 import type { EffectManager } from "../core/EffectManager";
 import { disposeObject3D } from "../utils/dispose";
+import { inkMesh, toonMaterial, type Ramp } from "../render/celShading";
 
 export interface PlatformCollider {
   minX: number;
@@ -18,9 +19,19 @@ export interface StaticCollider {
   radius: number;
 }
 
-function mat(color: number, roughness = 0.8, metalness = 0.1): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness, metalness });
+function mat(color: number, ramp: Ramp = "matte"): THREE.MeshToonMaterial {
+  return toonMaterial(ramp, { color });
 }
+
+/**
+ * Ink width for stage geometry, in world units at the reference depth the
+ * outline shader normalises to. One value covers scenery at every distance
+ * because that shader keeps the line weight constant on screen; parts thinner
+ * than the line (pipes, girders) are thinned down by `tagInk` itself.
+ */
+const STAGE_INK = 0.02;
+/** The arena disc reads its line edge-on against the void, so it can take more. */
+const GROUND_INK = 0.05;
 
 /** Procedural meadow texture: a green base speckled with grass-blade strokes, tiled across the ground. */
 function createGrassTexture(): THREE.CanvasTexture {
@@ -102,11 +113,10 @@ export class Stage {
 
   private buildGround(quality: QualitySettings): void {
     const groundGeo = new THREE.CylinderGeometry(this.arenaRadius, this.arenaRadius, 1, 32);
-    const groundMat = new THREE.MeshStandardMaterial({ map: createGrassTexture(), roughness: 0.95, metalness: 0 });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
+    const ground = new THREE.Mesh(groundGeo, toonMaterial("matte", { map: createGrassTexture() }));
     ground.position.y = -0.5;
     ground.receiveShadow = quality.shadows;
-    this.group.add(ground);
+    this.group.add(inkMesh(ground, GROUND_INK));
 
     // a worn dirt ring for visual interest without extra geometry cost
     const ringGeo = new THREE.RingGeometry(this.arenaRadius * 0.55, this.arenaRadius * 0.57, 48);
@@ -130,7 +140,7 @@ export class Stage {
     mesh.position.set(cx, topY / 2, cz);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    this.group.add(mesh);
+    this.group.add(inkMesh(mesh, STAGE_INK));
     this.collidableMeshes.push(mesh);
     this.platforms.push({
       minX: cx - w / 2,
@@ -164,7 +174,7 @@ export class Stage {
       container.rotation.y = angle;
       container.castShadow = quality.shadows;
       container.receiveShadow = quality.shadows;
-      this.group.add(container);
+      this.group.add(inkMesh(container, STAGE_INK));
       this.collidableMeshes.push(container);
     }
 
@@ -172,30 +182,30 @@ export class Stage {
     for (let i = 0; i < 4; i++) {
       const angle = (i / 4) * Math.PI * 2 + 0.4;
       const r = this.arenaRadius + 2;
-      const girder = new THREE.Mesh(new THREE.BoxGeometry(0.3, 6, 0.3), mat(0x555560, 0.6, 0.4));
+      const girder = new THREE.Mesh(new THREE.BoxGeometry(0.3, 6, 0.3), mat(0x555560, "hard"));
       girder.position.set(Math.cos(angle) * r, 3, Math.sin(angle) * r);
       girder.rotation.z = 0.15;
       girder.castShadow = quality.shadows;
-      this.group.add(girder);
+      this.group.add(inkMesh(girder, STAGE_INK));
     }
 
     // small crane silhouette, purely decorative, kept outside the walkable area
-    const craneBase = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 5, 8), mat(0xd68910, 0.6, 0.3));
+    const craneBase = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 5, 8), mat(0xd68910, "hard"));
     craneBase.position.set(-this.arenaRadius - 6, 2.5, -4);
-    const craneArm = new THREE.Mesh(new THREE.BoxGeometry(9, 0.35, 0.35), mat(0xd68910, 0.6, 0.3));
+    const craneArm = new THREE.Mesh(new THREE.BoxGeometry(9, 0.35, 0.35), mat(0xd68910, "hard"));
     craneArm.position.set(-this.arenaRadius - 2, 5, -4);
-    this.group.add(craneBase, craneArm);
+    this.group.add(inkMesh(craneBase, STAGE_INK), inkMesh(craneArm, STAGE_INK));
 
     // scattered pipes along the boundary (visual only)
     for (let i = 0; i < 6; i++) {
       const angle = (i / 6) * Math.PI * 2 + 0.7;
       const r = this.arenaRadius - 1.5;
-      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 2.4, 8), mat(0x6b7280, 0.5, 0.4));
+      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 2.4, 8), mat(0x6b7280, "hard"));
       pipe.rotation.z = Math.PI / 2;
       pipe.position.set(Math.cos(angle) * r, 0.25, Math.sin(angle) * r);
       pipe.rotation.y = angle;
       pipe.castShadow = quality.shadows;
-      this.group.add(pipe);
+      this.group.add(inkMesh(pipe, STAGE_INK));
     }
   }
 

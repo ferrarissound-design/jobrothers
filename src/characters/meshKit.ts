@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { scaleInk, tagInk, toonMaterial, type Ramp } from "../render/celShading";
 
 /**
  * Shared building blocks for the fighter models.
@@ -8,9 +9,8 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
  * they use proportioned skeletons and capsule limbs with real elbow / knee
  * joints, so they read as characters rather than as stacks of boxes.
  *
- * The look is cel shaded: every surface is a `MeshToonMaterial` reading a
- * stepped gradient ramp, and every mesh carries an inverted-hull ink outline,
- * so the fighters read as drawn animation cels rather than as lit plastic.
+ * Shading and ink outlines come from `render/celShading`, which the stage uses
+ * too; this module only decides which cel ramp each costume surface takes.
  */
 
 export type Surface =
@@ -26,21 +26,8 @@ export type Surface =
   | "fur"
   | "glow";
 
-/**
- * How light is quantised on a surface. Faces get the classic two-tone cel
- * break, fabric a soft three-tone, hard surfaces an extra band that stands in
- * for the specular an unlit toon material cannot produce.
- */
-type Ramp = "face" | "matte" | "hard";
-
-const RAMP_STOPS: Record<Ramp, number[]> = {
-  face: [0.6, 1.0],
-  matte: [0.46, 0.8, 1.0],
-  hard: [0.34, 0.6, 0.85, 1.0],
-};
-
 const SURFACE_RAMP: Record<Surface, Ramp> = {
-  skin: "face",
+  skin: "soft",
   cloth: "matte",
   denim: "matte",
   leather: "hard",
@@ -49,96 +36,9 @@ const SURFACE_RAMP: Record<Surface, Ramp> = {
   plastic: "hard",
   visor: "hard",
   card: "matte",
-  fur: "face",
-  glow: "face",
+  fur: "soft",
+  glow: "soft",
 };
-
-const gradientCache = new Map<string, THREE.DataTexture>();
-
-/** Stepped grey ramp used as a toon `gradientMap`; one texture per stop list. */
-function gradientMap(stops: number[]): THREE.DataTexture {
-  const key = stops.join(",");
-  let texture = gradientCache.get(key);
-  if (!texture) {
-    const data = new Uint8Array(stops.length * 4);
-    stops.forEach((stop, i) => {
-      const v = Math.round(THREE.MathUtils.clamp(stop, 0, 1) * 255);
-      data.set([v, v, v, 255], i * 4);
-    });
-    texture = new THREE.DataTexture(data, stops.length, 1, THREE.RGBAFormat);
-    texture.minFilter = THREE.NearestFilter;
-    texture.magFilter = THREE.NearestFilter;
-    texture.generateMipmaps = false;
-    texture.needsUpdate = true;
-    gradientCache.set(key, texture);
-  }
-  return texture;
-}
-
-/** Per-vertex ink width, written by `ModelKit` and read by the outline shader. */
-const INK_ATTRIBUTE = "inkWidth";
-
-const OUTLINE_VERTEX = /* glsl */ `
-  attribute float ${INK_ATTRIBUTE};
-  void main() {
-    vec4 view = modelViewMatrix * vec4(position, 1.0);
-    view.xyz += normalize(normalMatrix * normal) * ${INK_ATTRIBUTE};
-    gl_Position = projectionMatrix * view;
-  }
-`;
-
-const OUTLINE_FRAGMENT = /* glsl */ `
-  uniform vec3 inkColor;
-  void main() {
-    gl_FragColor = vec4(inkColor, 1.0);
-  }
-`;
-
-/**
- * Draws an ink line around every mesh under `root` by rendering a back-faced
- * copy pushed out along its normals — the standard inverted-hull trick. The
- * push happens in view space so that a squashed or mirrored part still gets an
- * even line, which a scaled-up clone could not give.
- *
- * Line width is per vertex (tagged in `ModelKit.build`, rescaled in
- * `scaleInk`) rather than global: one width for a whole fighter would swallow
- * whiskers, seam tape and mouth lines in ink.
- *
- * Call this once the model is fully baked — the outline meshes share the baked
- * geometry, so there is nothing left for a later merge to get wrong.
- */
-export function addOutlines(root: THREE.Object3D, ink = 0x1d1512): void {
-  const material = new THREE.ShaderMaterial({
-    uniforms: { inkColor: { value: new THREE.Color(ink) } },
-    vertexShader: OUTLINE_VERTEX,
-    fragmentShader: OUTLINE_FRAGMENT,
-    side: THREE.BackSide,
-  });
-
-  // Collected up front: adding children while traversing would re-enter the
-  // outline meshes and outline the outlines.
-  const meshes: THREE.Mesh[] = [];
-  root.traverse((child) => {
-    const mesh = child as THREE.Mesh;
-    // Transparent surfaces (visors, lenses) would show their own hull through
-    // themselves, so they stay un-inked.
-    if (
-      mesh.isMesh &&
-      !Array.isArray(mesh.material) &&
-      !mesh.material.transparent &&
-      mesh.geometry.hasAttribute(INK_ATTRIBUTE)
-    ) {
-      meshes.push(mesh);
-    }
-  });
-
-  for (const mesh of meshes) {
-    const outline = new THREE.Mesh(mesh.geometry, material);
-    outline.castShadow = false;
-    outline.receiveShadow = false;
-    mesh.add(outline);
-  }
-}
 
 /** Drops a decoration out of the shadow pass — small parts never read in the shadow map. */
 export function noShadow<T extends THREE.Object3D>(obj: T): T {
@@ -214,28 +114,6 @@ export function bakeStatic(group: THREE.Object3D, skip: THREE.Object3D[] = []): 
     }
   }
   for (const child of kept) group.add(child);
-}
-
-/**
- * Brings a part's ink budget into world units once baking has applied its
- * transform. Parts are authored as spheres and boxes and then squashed into
- * place — an eye is a ball flattened to a disc — so a width chosen from the
- * unscaled primitive would ink the flattened result far too heavily. The
- * smallest axis scale is the safe one: it under-inks rather than smears.
- */
-function scaleInk(geometry: THREE.BufferGeometry, matrix: THREE.Matrix4): THREE.BufferGeometry {
-  const ink = geometry.getAttribute(INK_ATTRIBUTE);
-  if (!ink) return geometry;
-  const m = matrix.elements;
-  const scale = Math.min(
-    Math.hypot(m[0], m[1], m[2]),
-    Math.hypot(m[4], m[5], m[6]),
-    Math.hypot(m[8], m[9], m[10])
-  );
-  const values = ink.array as Float32Array;
-  for (let i = 0; i < values.length; i++) values[i] *= scale;
-  ink.needsUpdate = true;
-  return geometry;
 }
 
 /** Bakes each segment of a limb, keeping the joints that the animation drives. */
@@ -319,10 +197,7 @@ export class ModelKit {
 
   /** An uncached material, for meshes whose colour or emissive is animated. */
   uniqueMaterial(color: number, surface: Surface = "cloth"): THREE.MeshToonMaterial {
-    const material = new THREE.MeshToonMaterial({
-      color,
-      gradientMap: gradientMap(RAMP_STOPS[SURFACE_RAMP[surface]]),
-    });
+    const material = toonMaterial(SURFACE_RAMP[surface], { color });
     if (surface === "glow") {
       material.emissive = new THREE.Color(color);
       material.emissiveIntensity = 0.9;
@@ -500,24 +375,10 @@ export class ModelKit {
   }
 
   private build(geometry: THREE.BufferGeometry, color: number, surface: Surface): THREE.Mesh {
-    this.tagInkWidth(geometry);
+    tagInk(geometry, this.ink);
     const mesh = new THREE.Mesh(geometry, this.material(color, surface));
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     return mesh;
-  }
-
-  /**
-   * Records how thick this part's ink line may be, before baking merges it into
-   * its neighbours. The budget comes from the part's *thinnest* dimension: a
-   * whisker or a strip of packing tape is thinner than the line a torso wants,
-   * and inking it at full width would turn it into a black smear.
-   */
-  private tagInkWidth(geometry: THREE.BufferGeometry): void {
-    geometry.computeBoundingBox();
-    const size = geometry.boundingBox!.getSize(new THREE.Vector3());
-    const width = Math.min(this.ink, Math.min(size.x, size.y, size.z) * 0.35);
-    const count = geometry.getAttribute("position").count;
-    geometry.setAttribute(INK_ATTRIBUTE, new THREE.BufferAttribute(new Float32Array(count).fill(width), 1));
   }
 }
