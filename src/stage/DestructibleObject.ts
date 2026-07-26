@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { DestructibleLike } from "../combat/CombatSystem";
 import type { EffectManager } from "../core/EffectManager";
 import { disposeObject3D } from "../utils/dispose";
+import { addOutlines, tagInk, toonMaterial, type Ramp } from "../render/celShading";
 
 export type DestructibleType = "crate" | "drum" | "wall" | "sign" | "vending";
 
@@ -76,7 +77,7 @@ export class DestructibleObject implements DestructibleLike {
   private flashHit(): void {
     this.group.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
-      const mat = mesh.material as THREE.MeshStandardMaterial;
+      const mat = mesh.material as THREE.MeshToonMaterial;
       if (mat?.emissive) {
         mat.emissive.setHex(0x442200);
         setTimeout(() => mat.emissive?.setHex(0x000000), 90);
@@ -103,9 +104,17 @@ interface BuiltMesh {
   defaultHp: number;
 }
 
-function mat(color: number): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.05 });
+/**
+ * One material per prop rather than a shared cache: `flashHit` tints the
+ * material's emissive on impact, and a shared one would flash every crate in
+ * the arena at once.
+ */
+function mat(color: number, ramp: Ramp = "matte"): THREE.MeshToonMaterial {
+  return toonMaterial(ramp, { color });
 }
+
+/** Ink line for props fought over at close range, in world units. */
+const PROP_INK = 0.016;
 
 function buildDestructibleMesh(type: DestructibleType): BuiltMesh {
   const group = new THREE.Group();
@@ -116,16 +125,16 @@ function buildDestructibleMesh(type: DestructibleType): BuiltMesh {
       m.castShadow = true;
       m.receiveShadow = true;
       group.add(m);
-      return { group, radius: 0.65, color: 0xa5723a, defaultHp: 16 };
+      return ink({ group, radius: 0.65, color: 0xa5723a, defaultHp: 16 });
     }
     case "drum": {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.05, 12), mat(0xd6432c));
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.05, 12), mat(0xd6432c, "hard"));
       m.position.y = 0.52;
       m.castShadow = true;
-      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.44, 0.12, 12), mat(0x2a2a2a));
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.44, 0.12, 12), mat(0x2a2a2a, "hard"));
       band.position.y = 0.75;
       group.add(m, band);
-      return { group, radius: 0.5, color: 0xd6432c, defaultHp: 20 };
+      return ink({ group, radius: 0.5, color: 0xd6432c, defaultHp: 20 });
     }
     case "wall": {
       const m = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.1, 0.3), mat(0x8b8f94));
@@ -133,15 +142,15 @@ function buildDestructibleMesh(type: DestructibleType): BuiltMesh {
       m.castShadow = true;
       m.receiveShadow = true;
       group.add(m);
-      return { group, radius: 0.9, color: 0x8b8f94, defaultHp: 24 };
+      return ink({ group, radius: 0.9, color: 0x8b8f94, defaultHp: 24 });
     }
     case "sign": {
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.6, 6), mat(0x555555));
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.6, 6), mat(0x555555, "hard"));
       pole.position.y = 0.8;
       const board = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.06), mat(0xffcc33));
       board.position.y = 1.4;
       group.add(pole, board);
-      return { group, radius: 0.55, color: 0xffcc33, defaultHp: 10 };
+      return ink({ group, radius: 0.55, color: 0xffcc33, defaultHp: 10 });
     }
     case "vending": {
       const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.7, 0.7), mat(0x2f7dbf));
@@ -150,7 +159,17 @@ function buildDestructibleMesh(type: DestructibleType): BuiltMesh {
       const front = new THREE.Mesh(new THREE.BoxGeometry(0.6, 1.1, 0.05), mat(0x1c1c1c));
       front.position.set(0, 1.0, 0.36);
       group.add(body, front);
-      return { group, radius: 0.6, color: 0x2f7dbf, defaultHp: 26 };
+      return ink({ group, radius: 0.6, color: 0x2f7dbf, defaultHp: 26 });
     }
   }
+}
+
+/** Gives every mesh of a finished prop its ink outline. */
+function ink(built: BuiltMesh): BuiltMesh {
+  built.group.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.isMesh) tagInk(mesh.geometry, PROP_INK);
+  });
+  addOutlines(built.group);
+  return built;
 }

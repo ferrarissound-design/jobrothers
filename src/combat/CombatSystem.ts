@@ -7,6 +7,7 @@ import { GameConfig } from "../config/gameConfig";
 import { clamp } from "../utils/math";
 import type { EffectManager } from "../core/EffectManager";
 import type { AudioManager } from "../core/AudioManager";
+import { addOutlines, tagInk, toonMaterial } from "../render/celShading";
 import {
   MINE_ARM_DELAY,
   MINE_LIFETIME,
@@ -15,6 +16,9 @@ import {
   MINE_TRIGGER_RADIUS,
   HYPER_MODE_ATTACK_MULT,
 } from "../characters/abilities";
+
+/** Ink line for a mine, in world units — it sits underfoot, so it stays fine. */
+const MINE_INK = 0.012;
 
 export interface DestructibleLike {
   id: string;
@@ -253,14 +257,17 @@ export class CombatSystem {
     const mesh = new THREE.Group();
     const base = new THREE.Mesh(
       new THREE.CylinderGeometry(0.32, 0.34, 0.14, 10),
-      new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 0.6 })
+      toonMaterial("hard", { color: 0x3a3a3a })
     );
     const light = new THREE.Mesh(
       new THREE.CylinderGeometry(0.1, 0.1, 0.06, 8),
-      new THREE.MeshStandardMaterial({ color: 0xff3b3b, emissive: 0xff2020, emissiveIntensity: 1 })
+      toonMaterial("soft", { color: 0xff3b3b, emissive: 0xff2020, emissiveIntensity: 1 })
     );
     light.position.y = 0.1;
     mesh.add(base, light);
+    tagInk(base.geometry, MINE_INK);
+    tagInk(light.geometry, MINE_INK);
+    addOutlines(mesh);
     mesh.position.copy(pos);
     this.scene.add(mesh);
 
@@ -293,7 +300,7 @@ export class CombatSystem {
       mine.armTimer -= dt;
       mine.life -= dt;
       mine.mesh.rotation.y += dt * 2;
-      const blink = (mine.mesh.children[1] as THREE.Mesh).material as THREE.MeshStandardMaterial;
+      const blink = (mine.mesh.children[1] as THREE.Mesh).material as THREE.MeshToonMaterial;
       blink.emissiveIntensity = 0.5 + Math.sin(performance.now() * 0.01) * 0.5;
 
       if (mine.life <= 0) {

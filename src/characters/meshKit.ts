@@ -1,13 +1,16 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { scaleInk, tagInk, toonMaterial, type Ramp } from "../render/celShading";
 
 /**
  * Shared building blocks for the fighter models.
  *
  * The models are still built from Three.js primitives (no external assets), but
- * they use anatomically proportioned skeletons, capsule limbs with real elbow /
- * knee joints and per-surface material properties so they read as characters
- * rather than as stacks of boxes.
+ * they use proportioned skeletons and capsule limbs with real elbow / knee
+ * joints, so they read as characters rather than as stacks of boxes.
+ *
+ * Shading and ink outlines come from `render/celShading`, which the stage uses
+ * too; this module only decides which cel ramp each costume surface takes.
  */
 
 export type Surface =
@@ -23,18 +26,18 @@ export type Surface =
   | "fur"
   | "glow";
 
-const SURFACE_PROPS: Record<Surface, { roughness: number; metalness: number }> = {
-  skin: { roughness: 0.78, metalness: 0.0 },
-  cloth: { roughness: 0.94, metalness: 0.0 },
-  denim: { roughness: 0.99, metalness: 0.0 },
-  leather: { roughness: 0.52, metalness: 0.06 },
-  metal: { roughness: 0.3, metalness: 0.92 },
-  rubber: { roughness: 0.88, metalness: 0.0 },
-  plastic: { roughness: 0.38, metalness: 0.04 },
-  visor: { roughness: 0.1, metalness: 0.7 },
-  card: { roughness: 0.96, metalness: 0.0 },
-  fur: { roughness: 0.92, metalness: 0.0 },
-  glow: { roughness: 0.35, metalness: 0.0 },
+const SURFACE_RAMP: Record<Surface, Ramp> = {
+  skin: "soft",
+  cloth: "matte",
+  denim: "matte",
+  leather: "hard",
+  metal: "hard",
+  rubber: "matte",
+  plastic: "hard",
+  visor: "hard",
+  card: "matte",
+  fur: "soft",
+  glow: "soft",
 };
 
 /** Drops a decoration out of the shadow pass — small parts never read in the shadow map. */
@@ -88,7 +91,7 @@ export function bakeStatic(group: THREE.Object3D, skip: THREE.Object3D[] = []): 
           };
           buckets.set(key, bucket);
         }
-        bucket.geometries.push(mesh.geometry.clone().applyMatrix4(matrix));
+        bucket.geometries.push(scaleInk(mesh.geometry.clone().applyMatrix4(matrix), matrix));
         mesh.geometry.dispose();
       }
       collect(child, matrix);
@@ -120,20 +123,26 @@ export function bakeLimb(limb: Limb): void {
   bakeStatic(limb.root, [limb.joint]);
 }
 
-/** Anatomical joint heights (in world units) for a humanoid of the given total height. */
+/**
+ * Joint heights (in world units) for a humanoid of the given total height.
+ *
+ * Stylised rather than anatomical: the skeleton is stretched towards the ~6
+ * heads-tall build animation uses — long legs, a short torso and a head that
+ * takes a sixth of the figure — instead of the 7.5 heads of a real adult.
+ */
 export function humanProportions(height: number) {
   return {
     height,
-    ankle: height * 0.048,
-    knee: height * 0.285,
-    hip: height * 0.52,
-    waist: height * 0.6,
-    chest: height * 0.72,
-    shoulder: height * 0.815,
-    neck: height * 0.855,
-    chin: height * 0.87,
-    /** Eye line sits mid-head on a real skull. */
-    eye: height * 0.935,
+    ankle: height * 0.045,
+    knee: height * 0.275,
+    hip: height * 0.505,
+    waist: height * 0.585,
+    chest: height * 0.7,
+    shoulder: height * 0.788,
+    neck: height * 0.822,
+    chin: height * 0.835,
+    /** Eye line sits low on a stylised head — the big-eyed animation convention. */
+    eye: height * 0.9,
     crown: height,
   };
 }
@@ -171,9 +180,12 @@ export interface Limb {
  * count of a four-fighter match low.
  */
 export class ModelKit {
-  private readonly cache = new Map<string, THREE.MeshStandardMaterial>();
+  private readonly cache = new Map<string, THREE.MeshToonMaterial>();
 
-  material(color: number, surface: Surface = "cloth"): THREE.MeshStandardMaterial {
+  /** @param ink Widest ink line this character's parts may carry, world units. */
+  constructor(private readonly ink = 0.007) {}
+
+  material(color: number, surface: Surface = "cloth"): THREE.MeshToonMaterial {
     const key = `${color}|${surface}`;
     let material = this.cache.get(key);
     if (!material) {
@@ -184,13 +196,8 @@ export class ModelKit {
   }
 
   /** An uncached material, for meshes whose colour or emissive is animated. */
-  uniqueMaterial(color: number, surface: Surface = "cloth"): THREE.MeshStandardMaterial {
-    const props = SURFACE_PROPS[surface];
-    const material = new THREE.MeshStandardMaterial({
-      color,
-      roughness: props.roughness,
-      metalness: props.metalness,
-    });
+  uniqueMaterial(color: number, surface: Surface = "cloth"): THREE.MeshToonMaterial {
+    const material = toonMaterial(SURFACE_RAMP[surface], { color });
     if (surface === "glow") {
       material.emissive = new THREE.Color(color);
       material.emissiveIntensity = 0.9;
@@ -277,28 +284,55 @@ export class ModelKit {
     return this.build(new THREE.TorusGeometry(r, tube, 6, 16, arc), color, surface);
   }
 
-  /** A whole eye: sclera, iris, pupil and a catch light. Looks down +Z. */
-  eye(radius: number, iris: number, pupil = 0x140f0c): THREE.Group {
+  /**
+   * A whole eye, drawn the way animation draws them: a tall oval that is mostly
+   * iris, a heavy upper lash line, and two catch lights — a big one opposite
+   * the key light and a small one below it. `radius` is the half-width; the eye
+   * stands about 1.4x that tall. Looks down +Z.
+   */
+  eye(radius: number, iris: number, pupil = 0x140f0c, lash = 0x241a17): THREE.Group {
     const group = new THREE.Group();
 
-    const sclera = this.sphere(radius, 0xf3efe7, "skin", 12);
-    sclera.scale.set(1, 1, 0.72);
+    // The eye is layered like a painted cel: every layer sits strictly in front
+    // of the one behind it, because a flattened sphere tucked *inside* the
+    // sclera would simply be hidden by it.
+    const sclera = this.sphere(radius, 0xf7f4ee, "skin", 12);
+    sclera.scale.set(1, 1.35, 0.3);
     group.add(sclera);
 
-    const irisMesh = this.sphere(radius * 0.52, iris, "plastic", 10);
-    irisMesh.position.z = radius * 0.6;
-    irisMesh.scale.set(1, 1, 0.35);
+    // A darker rim around the iris, the way cels ink the outer edge.
+    const rimColor = new THREE.Color(iris).multiplyScalar(0.4).getHex();
+    const irisRim = this.sphere(radius * 0.66, rimColor, "plastic", 12);
+    irisRim.position.set(0, -radius * 0.16, radius * 0.26);
+    irisRim.scale.set(1, 1.7, 0.1);
+    group.add(irisRim);
+
+    // A tall iris with white showing either side of it — the drawn eye shape.
+    const irisMesh = this.sphere(radius * 0.56, iris, "plastic", 12);
+    irisMesh.position.set(0, -radius * 0.16, radius * 0.3);
+    irisMesh.scale.set(1, 1.8, 0.1);
     group.add(irisMesh);
 
-    const pupilMesh = this.sphere(radius * 0.26, pupil, "plastic", 8);
-    pupilMesh.position.z = radius * 0.74;
-    pupilMesh.scale.set(1, 1, 0.35);
+    const pupilMesh = this.sphere(radius * 0.26, pupil, "plastic", 10);
+    pupilMesh.position.set(0, -radius * 0.16, radius * 0.34);
+    pupilMesh.scale.set(1, 1.9, 0.1);
     group.add(pupilMesh);
 
-    const glint = this.sphere(radius * 0.16, 0xffffff, "glow", 6);
-    glint.position.set(radius * 0.26, radius * 0.3, radius * 0.76);
-    glint.scale.set(1, 1, 0.3);
+    const glint = this.sphere(radius * 0.24, 0xffffff, "glow", 8);
+    glint.position.set(radius * 0.2, radius * 0.4, radius * 0.38);
+    glint.scale.set(1, 1.1, 0.08);
     group.add(glint);
+
+    const spark = this.sphere(radius * 0.12, 0xffffff, "glow", 6);
+    spark.position.set(-radius * 0.2, -radius * 0.72, radius * 0.38);
+    spark.scale.set(1, 1, 0.08);
+    group.add(spark);
+
+    // heavy upper lash line — the single strongest anime cue on a face
+    const lid = this.sphere(radius, lash, "skin", 12);
+    lid.position.set(0, radius * 1.24, radius * 0.12);
+    lid.scale.set(1.02, 0.19, 0.42);
+    group.add(lid);
 
     return noShadow(group);
   }
@@ -341,6 +375,7 @@ export class ModelKit {
   }
 
   private build(geometry: THREE.BufferGeometry, color: number, surface: Surface): THREE.Mesh {
+    tagInk(geometry, this.ink);
     const mesh = new THREE.Mesh(geometry, this.material(color, surface));
     mesh.castShadow = true;
     mesh.receiveShadow = true;

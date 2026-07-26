@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { ObjectPool } from "../utils/objectPool";
 import type { QualitySettings } from "../config/gameConfig";
+import { toonMaterial } from "../render/celShading";
 
 interface Particle {
   mesh: THREE.Mesh;
@@ -61,10 +62,7 @@ export class EffectManager {
 
     this.fragmentPool = new ObjectPool<Particle>(
       () => {
-        const mesh = new THREE.Mesh(
-          sharedBoxGeo,
-          new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 })
-        );
+        const mesh = new THREE.Mesh(sharedBoxGeo, toonMaterial("matte", { color: 0xffffff }));
         mesh.visible = false;
         mesh.castShadow = true;
         this.scene.add(mesh);
@@ -96,7 +94,7 @@ export class EffectManager {
       if (this.fragments.length >= this.quality.maxFragments) break;
       const p = this.fragmentPool.acquire();
       p.mesh.geometry = sharedBoxGeo;
-      const mat = p.mesh.material as THREE.MeshStandardMaterial;
+      const mat = p.mesh.material as THREE.MeshToonMaterial;
       mat.color.setHex(color);
       mat.opacity = 1;
       mat.transparent = false;

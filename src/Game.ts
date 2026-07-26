@@ -144,11 +144,18 @@ export class Game {
   }
 
   private setupLighting(): THREE.DirectionalLight {
-    const ambient = new THREE.HemisphereLight(0x8ecdf0, 0x3f6b2a, 2.4);
+    // Cel shading only bands where *direct* light dominates: ambient fill lands
+    // outside the toon ramp, so too much of it flattens the fighters back into
+    // untinted silhouettes. Keep the sky wash low and let the sun carry the
+    // exposure, with a cool back light for the rim animation always draws.
+    const ambient = new THREE.HemisphereLight(0x8ecdf0, 0x3f6b2a, 1.3);
     this.scene.add(ambient);
-    const fill = new THREE.AmbientLight(0xffffff, 0.5);
+    const fill = new THREE.AmbientLight(0xffffff, 0.25);
     this.scene.add(fill);
-    const sun = new THREE.DirectionalLight(0xfff2d8, 2.4);
+    const rim = new THREE.DirectionalLight(0xbfe0ff, 1.0);
+    rim.position.set(-12, 14, -18);
+    this.scene.add(rim);
+    const sun = new THREE.DirectionalLight(0xfff2d8, 3.1);
     sun.position.set(15, 24, 10);
     sun.shadow.mapSize.set(1024, 1024);
     sun.shadow.camera.left = -30;
