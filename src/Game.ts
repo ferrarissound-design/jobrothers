@@ -98,6 +98,7 @@ export class Game {
 
     this.sunLight = this.setupLighting();
     this.applyRendererQuality();
+    this.audio.preloadMusic(`${import.meta.env.BASE_URL}bgm/crown_of_the_fallen_king.mp3`);
 
     this.controller = new CharacterController(this.stage, this.combat, this.effects, this.audio);
 
@@ -107,11 +108,13 @@ export class Game {
       isMobile: this.isMobile,
       initialQuality: this.quality,
       initialVolume: this.audio.getVolume(),
+      initialMusicVolume: this.audio.getMusicVolume(),
       initialDifficulty: this.difficulty,
       onPauseToggle: (paused) => this.setPaused(paused),
       onRestart: () => this.restart(),
       onQualityChange: (q) => this.setQuality(q),
       onVolumeChange: (v) => this.audio.setVolume(v),
+      onMusicVolumeChange: (v) => this.audio.setMusicVolume(v),
       onDifficultyChange: (d) => this.setDifficulty(d),
     });
 
@@ -381,6 +384,7 @@ export class Game {
   private endMatch(playerWon: boolean): void {
     this.phase = "result";
     this.mobileControls?.setEnabled(false);
+    this.audio.setMusicDucked(true);
     this.audio.play(playerWon ? "win" : "lose");
     this.ui.showResult(playerWon);
     this.loop.setTimeScale(0.25);
@@ -493,6 +497,7 @@ export class Game {
   private setPaused(paused: boolean): void {
     this.phase = this.phase === "result" ? "result" : paused ? "paused" : "playing";
     this.mobileControls?.setEnabled(this.phase === "playing");
+    this.audio.setMusicDucked(this.phase !== "playing");
   }
 
   private setQuality(q: QualityLevel): void {
@@ -526,6 +531,7 @@ export class Game {
     this.matchTime = 0;
     this.phase = "playing";
     this.mobileControls?.setEnabled(true);
+    this.audio.setMusicDucked(false);
     this.ui.hideResult();
     this.ui.setPaused(false);
     this.loop.setTimeScale(1);
