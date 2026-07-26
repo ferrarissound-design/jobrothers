@@ -27,7 +27,8 @@ export interface CharacterIntent {
   wantDodge: boolean;
 }
 
-const GROUND_TURN_LAMBDA = 14;
+const GROUND_ACCEL_LAMBDA = 20;
+const GROUND_BRAKE_LAMBDA = 32;
 const AIR_TURN_LAMBDA = 9;
 const GUARD_PASSIVE_DRAIN = 6;
 
@@ -170,7 +171,14 @@ export class CharacterController {
 
     const targetX = moveVec.x * speed * mag;
     const targetZ = moveVec.z * speed * mag;
-    const baseLambda = c.grounded ? GROUND_TURN_LAMBDA : AIR_TURN_LAMBDA;
+    // Braking needs to be more immediate than acceleration. Using the same
+    // damping for both made fighters keep gliding after the stick/key was
+    // released, which felt especially slippery during small adjustments.
+    const baseLambda = c.grounded
+      ? mag > 0.1
+        ? GROUND_ACCEL_LAMBDA
+        : GROUND_BRAKE_LAMBDA
+      : AIR_TURN_LAMBDA;
     const lambda = c.hyperMode ? baseLambda * 0.45 : baseLambda;
     c.velocity.x = damp(c.velocity.x, targetX, lambda, dt);
     c.velocity.z = damp(c.velocity.z, targetZ, lambda, dt);
