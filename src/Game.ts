@@ -68,6 +68,7 @@ export class Game {
   private fpsDisplay = 0;
 
   constructor(private canvas: HTMLCanvasElement, private uiRoot: HTMLElement) {
+    Game.syncViewportSize();
     this.isMobile = isMobileDevice();
     this.quality =
       (readSetting(STORAGE_KEYS.quality) as QualityLevel | null) ??
@@ -124,6 +125,11 @@ export class Game {
     }
 
     window.addEventListener("resize", () => this.onResize());
+    // iPadOS/iOS Safari resize the visual viewport (toolbar show/hide, split
+    // view) without always firing "resize" on window; this keeps the
+    // --app-vw/--app-vh custom properties (and the mobile control layout
+    // anchored to them) from drifting away from the true visible area.
+    window.visualViewport?.addEventListener("resize", () => this.onResize());
     const unlock = () => {
       this.audio.resume();
       window.removeEventListener("pointerdown", unlock);
@@ -547,7 +553,25 @@ export class Game {
   }
 
   private onResize(): void {
+    Game.syncViewportSize();
     this.cameraController.setAspect(window.innerWidth / window.innerHeight);
     this.renderer.setSize(window.innerWidth, window.innerHeight, true);
+  }
+
+  /**
+   * Mirrors the true visible viewport into --app-vw/--app-vh custom
+   * properties. CSS `100vw`/`100vh` on iPadOS/iOS Safari are defined against
+   * the largest possible viewport (toolbars retracted), not the currently
+   * visible one, so a #app sized with plain vw/vh units can end up taller
+   * and wider than what's on screen — pushing bottom/right-anchored UI
+   * (the mobile control buttons) past the visible edge. window.innerWidth/
+   * innerHeight — the same values the renderer is sized to — always match
+   * what's actually visible, so anchoring #app to those keeps the DOM
+   * overlay and the canvas in sync.
+   */
+  private static syncViewportSize(): void {
+    const root = document.documentElement.style;
+    root.setProperty("--app-vw", `${window.innerWidth}px`);
+    root.setProperty("--app-vh", `${window.innerHeight}px`);
   }
 }
