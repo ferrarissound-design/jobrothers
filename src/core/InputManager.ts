@@ -146,6 +146,23 @@ export class InputManager {
     return false;
   }
 
+  /**
+   * Drops every buffered press and held axis. Called when a menu hands control
+   * back to the match, so keys pressed while navigating the menu (Space to
+   * confirm, WASD to move the cursor) do not leak into the first frame of play.
+   */
+  clearTransient(): void {
+    this.justPressed.clear();
+    this.keysDown.clear();
+    this.moveX = 0;
+    this.moveY = 0;
+    this.lookDX = 0;
+    this.lookDY = 0;
+    this.guardHeld = false;
+    this.dashHeld = false;
+    this.jumpHeld = false;
+  }
+
   /** Call once per frame after all systems have read input, to clear per-frame deltas. */
   endFrame(): void {
     this.lookDX = 0;

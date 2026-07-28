@@ -30,6 +30,8 @@ export interface UIManagerOptions {
   onVolumeChange: (v: number) => void;
   onMusicVolumeChange: (v: number) => void;
   onDifficultyChange: (d: AIDifficulty) => void;
+  /** Opens the character select screen from the pause or result overlay. */
+  onCharacterSelect: () => void;
 }
 
 interface PanelRefs {
@@ -46,6 +48,7 @@ export class UIManager {
   private timerEl!: HTMLElement;
   private specialIconEl!: HTMLElement;
   private specialOverlayEl!: HTMLElement;
+  private hudEl!: HTMLElement;
   private resultEl!: HTMLElement;
   private resultTitleEl!: HTMLElement;
   private pauseOverlayEl!: HTMLElement;
@@ -63,6 +66,7 @@ export class UIManager {
     const hud = document.createElement("div");
     hud.className = "jb-hud" + (this.opts.isMobile ? " jb-hud-mobile" : "");
     this.root.appendChild(hud);
+    this.hudEl = hud;
 
     // top bar
     const topbar = document.createElement("div");
@@ -113,11 +117,18 @@ export class UIManager {
     this.resultEl.className = "jb-result";
     this.resultTitleEl = document.createElement("div");
     this.resultTitleEl.className = "jb-result-title";
+    const resultBtns = document.createElement("div");
+    resultBtns.className = "jb-result-btns";
     const restartBtn = document.createElement("button");
     restartBtn.className = "jb-result-btn";
     restartBtn.textContent = "もう一度戦う";
     restartBtn.addEventListener("click", () => this.opts.onRestart());
-    this.resultEl.append(this.resultTitleEl, restartBtn);
+    const selectBtn = document.createElement("button");
+    selectBtn.className = "jb-result-btn jb-result-btn-alt";
+    selectBtn.textContent = "キャラクター選択";
+    selectBtn.addEventListener("click", () => this.opts.onCharacterSelect());
+    resultBtns.append(restartBtn, selectBtn);
+    this.resultEl.append(this.resultTitleEl, resultBtns);
     hud.appendChild(this.resultEl);
 
     // pause overlay
@@ -203,10 +214,18 @@ export class UIManager {
     const restartBtn = document.createElement("button");
     restartBtn.textContent = "最初から";
     restartBtn.addEventListener("click", () => this.opts.onRestart());
-    btnRow.append(resumeBtn, restartBtn);
+    const selectBtn = document.createElement("button");
+    selectBtn.textContent = "キャラクター選択";
+    selectBtn.addEventListener("click", () => this.opts.onCharacterSelect());
+    btnRow.append(resumeBtn, restartBtn, selectBtn);
     overlay.appendChild(btnRow);
 
     hud.appendChild(overlay);
+  }
+
+  /** Hides the whole in-match HUD while a full-screen menu (character select) owns the display. */
+  setHudVisible(visible: boolean): void {
+    this.hudEl.style.display = visible ? "" : "none";
   }
 
   togglePause(): void {

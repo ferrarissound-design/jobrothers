@@ -8,11 +8,14 @@ import { Stage } from "./stage/Stage";
 import { CameraController } from "./camera/CameraController";
 import { UIManager, type FighterUIState } from "./ui/UIManager";
 import { MobileControls, isMobileDevice } from "./ui/MobileControls";
+import { CharacterSelect } from "./ui/CharacterSelect";
+import { CharacterPreview } from "./render/CharacterPreview";
 import { Character } from "./characters/Character";
 import { CharacterController, type CharacterIntent } from "./characters/CharacterController";
 import { CPUController } from "./ai/CPUController";
-import { CHARACTERS, type CharacterId } from "./characters/characterData";
+import { CHARACTERS, CHARACTER_ORDER, type CharacterId } from "./characters/characterData";
 import { CHARACTER_ATTACKS } from "./characters/attacks";
+import { disposeObject3D } from "./utils/dispose";
 import {
   GameConfig,
   QUALITY_PRESETS,
@@ -20,12 +23,12 @@ import {
   type QualityLevel,
   type AIDifficulty,
 } from "./config/gameConfig";
-import type { AIPersonality } from "./ai/AIState";
+import { CHARACTER_PERSONALITY } from "./ai/AIState";
 import { horizontalDistance } from "./combat/Hitbox";
 import { clamp, dampAngle } from "./utils/math";
 import { readSetting, writeSetting } from "./utils/storage";
 
-type MatchPhase = "playing" | "paused" | "result";
+type MatchPhase = "select" | "playing" | "paused" | "result";
 
 interface FighterEntry {
   character: Character;
@@ -49,6 +52,8 @@ export class Game {
   private stage: Stage;
   private cameraController: CameraController;
   private ui: UIManager;
+  private select: CharacterSelect;
+  private preview?: CharacterPreview;
   private mobileControls?: MobileControls;
   private isMobile: boolean;
   private sunLight: THREE.DirectionalLight;
@@ -56,10 +61,14 @@ export class Game {
   private fighters: FighterEntry[] = [];
   private player: Character;
   private controller: CharacterController;
+  private playerCharacterId: CharacterId;
 
   private quality: QualityLevel;
   private difficulty: AIDifficulty;
   private phase: MatchPhase = "playing";
+  /** Phase to restore when the character select screen is backed out of. */
+  private phaseBeforeSelect: MatchPhase = "playing";
+  private lastResultWin = false;
   private matchTime = 0;
   private debugEnabled = false;
   private lastFrameTime = performance.now();
@@ -74,6 +83,9 @@ export class Game {
       (readSetting(STORAGE_KEYS.quality) as QualityLevel | null) ??
       (this.isMobile ? "medium" : "high");
     this.difficulty = (readSetting(STORAGE_KEYS.difficulty) as AIDifficulty | null) ?? "normal";
+    const storedCharacter = readSetting(STORAGE_KEYS.character) as CharacterId | null;
+    this.playerCharacterId =
+      storedCharacter && storedCharacter in CHARACTERS ? storedCharacter : CHARACTER_ORDER[0];
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.isMobile, powerPreference: "high-performance" });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -117,6 +129,13 @@ export class Game {
       onVolumeChange: (v) => this.audio.setVolume(v),
       onMusicVolumeChange: (v) => this.audio.setMusicVolume(v),
       onDifficultyChange: (d) => this.setDifficulty(d),
+      onCharacterSelect: () => this.openCharacterSelect(true),
+    });
+
+    this.select = new CharacterSelect(uiRoot, {
+      onHighlight: (id) => this.preview?.setCharacter(CHARACTERS[id]),
+      onConfirm: (id) => this.confirmCharacter(id),
+      onCancel: () => this.closeCharacterSelect(),
     });
 
     if (this.isMobile) {
@@ -146,6 +165,11 @@ export class Game {
       (dt) => this.fixedUpdate(dt),
       (alpha) => this.render(alpha)
     );
+
+    // The roster screen owns the very first frame: a fighter is already spawned
+    // (so every subsystem has a valid player), but nothing simulates until the
+    // player has locked a choice in. Last, because it needs the loop to exist.
+    this.openCharacterSelect(false);
   }
 
   start(): void {
@@ -180,32 +204,117 @@ export class Game {
     return sun;
   }
 
+  /**
+   * Builds the match roster around the player's pick: whoever they did not
+   * choose fills the CPU slots, so the arena always holds one of each fighter.
+   */
   private spawnFighters(): Character {
     const spawnPoints = this.stage.spawnPoints;
-    const playerDef = CHARACTERS.jorio;
+    const playerDef = CHARACTERS[this.playerCharacterId];
     const player = new Character({ instanceId: "player", displayName: playerDef.name, isPlayer: true }, playerDef, spawnPoints[0]);
     this.scene.add(player.group);
     this.fighters.push({ character: player });
 
-    const cpuRoster: { id: CharacterId; personality: AIPersonality }[] = [
-      { id: "birinezu", personality: "aggressive" },
-      { id: "hayasugi", personality: "cautious" },
-      { id: "danboru", personality: "ranged" },
-    ];
+    const cpuIds = CHARACTER_ORDER.filter((id) => id !== this.playerCharacterId).slice(
+      0,
+      GameConfig.cpuCount
+    );
 
-    cpuRoster.forEach((entry, i) => {
-      const def = CHARACTERS[entry.id];
+    cpuIds.forEach((id, i) => {
+      const def = CHARACTERS[id];
       const c = new Character(
         { instanceId: `cpu${i + 1}`, displayName: def.name, isPlayer: false },
         def,
         spawnPoints[(i + 1) % spawnPoints.length]
       );
       this.scene.add(c.group);
-      const cpu = new CPUController(entry.personality, this.difficulty);
+      const cpu = new CPUController(CHARACTER_PERSONALITY[id], this.difficulty);
       this.fighters.push({ character: c, cpu });
     });
 
     return player;
+  }
+
+  // --- character select ---------------------------------------------------
+
+  /**
+   * Freezes the match (if any) and hands the screen to the roster screen plus
+   * its 3D portrait. The portrait is built here and torn down on close rather
+   * than kept alive for the whole session: it holds a second character model,
+   * which is exactly the kind of memory a phone does not have spare mid-match.
+   *
+   * @param cancellable false at boot, where there is no match to return to.
+   */
+  private openCharacterSelect(cancellable: boolean): void {
+    if (this.phase === "select") return;
+    this.phaseBeforeSelect = this.phase;
+    this.phase = "select";
+
+    this.ui.setPaused(false);
+    this.ui.hideResult();
+    this.ui.setHudVisible(false);
+    this.mobileControls?.setEnabled(false);
+    this.mobileControls?.setVisible(false);
+    this.audio.setMusicDucked(true);
+    this.loop.setTimeScale(1);
+
+    this.preview = new CharacterPreview();
+    this.preview.setViewport(window.innerWidth, window.innerHeight);
+    this.preview.setCharacter(CHARACTERS[this.playerCharacterId]);
+    this.select.open(this.playerCharacterId, cancellable);
+  }
+
+  /** Backs out of the roster screen, restoring whatever overlay was up before it. */
+  private closeCharacterSelect(): void {
+    this.teardownSelect();
+    this.phase = this.phaseBeforeSelect;
+    if (this.phase === "result") {
+      this.ui.showResult(this.lastResultWin);
+      this.audio.setMusicDucked(true);
+    } else if (this.phase === "paused") {
+      this.ui.setPaused(true);
+      this.audio.setMusicDucked(true);
+    } else {
+      this.audio.setMusicDucked(false);
+      this.mobileControls?.setEnabled(true);
+    }
+  }
+
+  private teardownSelect(): void {
+    this.select.close();
+    this.preview?.dispose();
+    this.preview = undefined;
+    this.ui.setHudVisible(true);
+    this.mobileControls?.setVisible(true);
+    // Menu navigation runs on the same keys as combat; without this the Space
+    // that confirmed the choice would also jump on the first frame of the match.
+    this.input.clearTransient();
+  }
+
+  /** Locks in the chosen fighter and starts a fresh match with the new roster. */
+  private confirmCharacter(id: CharacterId): void {
+    const changed = id !== this.playerCharacterId;
+    this.playerCharacterId = id;
+    writeSetting(STORAGE_KEYS.character, id);
+
+    this.teardownSelect();
+    if (changed) this.rebuildRoster();
+
+    // restart() puts the phase back to "playing" and clears the previous match.
+    this.restart();
+    this.cameraController.reset(this.player.facingAngle);
+  }
+
+  /** Replaces every fighter (and its mesh) so the new pick takes the player slot. */
+  private rebuildRoster(): void {
+    for (const f of this.fighters) {
+      disposeObject3D(f.character.group);
+    }
+    this.fighters = [];
+    // Panels are keyed by instance id and label themselves once, so the stale
+    // ones would keep the previous roster's names.
+    this.ui.resetPanels();
+    this.player = this.spawnFighters();
   }
 
   // --- fixed-step simulation -------------------------------------------
@@ -389,6 +498,7 @@ export class Game {
 
   private endMatch(playerWon: boolean): void {
     this.phase = "result";
+    this.lastResultWin = playerWon;
     this.mobileControls?.setEnabled(false);
     this.audio.setMusicDucked(true);
     this.audio.play(playerWon ? "win" : "lose");
@@ -403,6 +513,15 @@ export class Game {
     const now = performance.now();
     const realDt = Math.min(0.05, (now - this.lastFrameTime) / 1000);
     this.lastFrameTime = now;
+
+    if (this.phase === "select") {
+      // The roster screen replaces the arena entirely: the match scene is not
+      // drawn at all, so the portrait keeps a full frame budget to itself.
+      this.input.endFrame();
+      this.preview?.update(realDt);
+      this.preview?.render(this.renderer);
+      return;
+    }
 
     if (this.input.consumeJustPressed("cameraReset")) {
       this.cameraController.reset(this.player.facingAngle);
@@ -556,6 +675,7 @@ export class Game {
     Game.syncViewportSize();
     this.cameraController.setAspect(window.innerWidth / window.innerHeight);
     this.renderer.setSize(window.innerWidth, window.innerHeight, true);
+    this.preview?.setViewport(window.innerWidth, window.innerHeight);
   }
 
   /**

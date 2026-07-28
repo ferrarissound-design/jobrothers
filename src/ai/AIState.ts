@@ -1,3 +1,5 @@
+import type { CharacterId } from "../characters/characterData";
+
 export type AIPersonality = "aggressive" | "cautious" | "ranged";
 
 export interface AIPersonalityConfig {
@@ -43,3 +45,16 @@ export const AI_PERSONALITIES: Record<AIPersonality, AIPersonalityConfig> = {
 };
 
 export const CPU_PERSONALITY_ORDER: AIPersonality[] = ["aggressive", "cautious", "ranged"];
+
+/**
+ * Which personality a fighter plays with when the CPU takes it over. Tied to
+ * the character rather than to the roster slot, so whoever the player leaves
+ * behind still fights the way that character is designed to: the featherweight
+ * rushes, the speedster picks its moments, the heavy zones from range.
+ */
+export const CHARACTER_PERSONALITY: Record<CharacterId, AIPersonality> = {
+  jorio: "aggressive",
+  birinezu: "aggressive",
+  hayasugi: "cautious",
+  danboru: "ranged",
+};
