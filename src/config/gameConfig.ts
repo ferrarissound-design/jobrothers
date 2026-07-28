@@ -114,4 +114,5 @@ export const STORAGE_KEYS = {
   quality: "joebra_quality",
   volume: "joebra_volume",
   difficulty: "joebra_difficulty",
+  character: "joebra_character",
 };

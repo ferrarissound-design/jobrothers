@@ -56,6 +56,11 @@ export class MobileControls {
     this.root.classList.add("jb-active");
   }
 
+  /** Hides the pad entirely — used by full-screen menus that own the whole display. */
+  setVisible(visible: boolean): void {
+    this.root.classList.toggle("jb-active", visible);
+  }
+
   /** Disable touch capture (and drop any in-progress touches) while paused/result screens are up, so their buttons remain reachable. */
   setEnabled(enabled: boolean): void {
     this.root.classList.toggle("jb-mobile-disabled", !enabled);
