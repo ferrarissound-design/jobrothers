@@ -112,6 +112,19 @@ export class CombatSystem {
 
   private applyHit(attacker: Character, defender: Character, attack: AttackDef): void {
     attacker.hitTargetsThisAttack.add(defender.instanceId);
+    this.resolveHit(attacker, defender, attack);
+  }
+
+  /**
+   * A projectile landing on a fighter. Same damage/guard/knockback rules as a
+   * melee connect, but outside the per-swing dedupe set: a projectile is its
+   * own event, and the owner may well be mid-swing with something else.
+   */
+  applyProjectileHit(owner: Character, target: Character, attack: AttackDef, impact: THREE.Vector3): void {
+    this.resolveHit(owner, target, attack, impact);
+  }
+
+  private resolveHit(attacker: Character, defender: Character, attack: AttackDef, impact?: THREE.Vector3): void {
     if (defender.invulnTimer > 0) return;
     if (defender.isDodging && defender.dodgeInvuln) return;
 
@@ -140,8 +153,7 @@ export class CombatSystem {
     defender.hitFlashTimer = 0.15;
     defender.isGuarding = false;
 
-    const hitPos = defender.position.clone();
-    hitPos.y += defender.height * 0.55;
+    const hitPos = impact ? impact.clone() : defender.position.clone().setY(defender.position.y + defender.height * 0.55);
     this.spawnHitEffect(attack, hitPos);
     this.audio.play(attack.sound);
     this.callbacks.onHitStop(clamp(0.02 + finalDamage * 0.0028, 0.02, 0.12));

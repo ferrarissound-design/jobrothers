@@ -9,6 +9,12 @@ export interface CharacterParts {
   head: THREE.Object3D;
   rightArm: THREE.Object3D;
   leftArm: THREE.Object3D;
+  /**
+   * Wrist joint of the right arm. Held items are parented here so they inherit
+   * the swing the limb animation already drives, instead of needing one of
+   * their own.
+   */
+  rightHand: THREE.Object3D;
   rightLeg: THREE.Object3D;
   leftLeg: THREE.Object3D;
   weapon?: THREE.Object3D;
@@ -356,6 +362,7 @@ function buildJorio(def: CharacterDef): CharacterParts {
     body,
     head,
     rightArm: rightArm.root,
+    rightHand: rightArm.tip,
     leftArm: leftArm.root,
     rightLeg: rightLeg.root,
     leftLeg: leftLeg.root,
@@ -585,6 +592,7 @@ function buildBirinezu(def: CharacterDef): CharacterParts {
     body,
     head,
     rightArm: arms[0].root,
+    rightHand: arms[0].tip,
     leftArm: arms[1].root,
     rightLeg: legs[0].root,
     leftLeg: legs[1].root,
@@ -859,6 +867,7 @@ function buildHayasugi(def: CharacterDef): CharacterParts {
     body,
     head,
     rightArm: arms[0].root,
+    rightHand: arms[0].tip,
     leftArm: arms[1].root,
     rightLeg: legs[0].root,
     leftLeg: legs[1].root,
@@ -1174,6 +1183,7 @@ function buildDanboru(def: CharacterDef): CharacterParts {
     body,
     head,
     rightArm: arms[0].root,
+    rightHand: arms[0].tip,
     leftArm: arms[1].root,
     rightLeg: legs[0].root,
     leftLeg: legs[1].root,

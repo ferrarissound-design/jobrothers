@@ -1,4 +1,4 @@
-import type { QualityLevel, AIDifficulty } from "../config/gameConfig";
+import type { QualityLevel, AIDifficulty, ItemFrequency } from "../config/gameConfig";
 import { GameConfig } from "../config/gameConfig";
 
 export interface FighterUIState {
@@ -11,11 +11,24 @@ export interface FighterUIState {
   alive: boolean;
 }
 
+/** The item the player is carrying right now, or null when their hands are empty. */
+export interface HeldItemUIState {
+  name: string;
+  hint: string;
+  color: number;
+  usesLeft: number;
+  /** 1 = just picked up, 0 = about to be dropped. */
+  timeFrac: number;
+}
+
 export interface HUDState {
   fighters: FighterUIState[];
   matchTime: number;
   specialCooldownFrac: number; // 0 = ready, 1 = just used
   specialReady: boolean;
+  heldItem: HeldItemUIState | null;
+  /** Seconds of star invulnerability left; 0 hides the badge. */
+  starTimeLeft: number;
 }
 
 export interface UIManagerOptions {
@@ -24,12 +37,14 @@ export interface UIManagerOptions {
   initialVolume: number;
   initialMusicVolume: number;
   initialDifficulty: AIDifficulty;
+  initialItemFrequency: ItemFrequency;
   onPauseToggle: (paused: boolean) => void;
   onRestart: () => void;
   onQualityChange: (q: QualityLevel) => void;
   onVolumeChange: (v: number) => void;
   onMusicVolumeChange: (v: number) => void;
   onDifficultyChange: (d: AIDifficulty) => void;
+  onItemFrequencyChange: (f: ItemFrequency) => void;
   /** Opens the character select screen from the pause or result overlay. */
   onCharacterSelect: () => void;
 }
@@ -48,6 +63,12 @@ export class UIManager {
   private timerEl!: HTMLElement;
   private specialIconEl!: HTMLElement;
   private specialOverlayEl!: HTMLElement;
+  private itemChipEl!: HTMLElement;
+  private itemNameEl!: HTMLElement;
+  private itemHintEl!: HTMLElement;
+  private itemUsesEl!: HTMLElement;
+  private itemTimerFillEl!: HTMLElement;
+  private starBadgeEl!: HTMLElement;
   private hudEl!: HTMLElement;
   private resultEl!: HTMLElement;
   private resultTitleEl!: HTMLElement;
@@ -106,6 +127,28 @@ export class UIManager {
     this.specialIconEl.appendChild(this.specialOverlayEl);
     specialWrap.appendChild(this.specialIconEl);
     hud.appendChild(specialWrap);
+
+    // held item chip — sits next to the special wheel, hidden while empty-handed
+    this.itemChipEl = document.createElement("div");
+    this.itemChipEl.className = "jb-item-chip";
+    this.itemNameEl = document.createElement("div");
+    this.itemNameEl.className = "jb-item-name";
+    this.itemHintEl = document.createElement("div");
+    this.itemHintEl.className = "jb-item-hint";
+    this.itemUsesEl = document.createElement("div");
+    this.itemUsesEl.className = "jb-item-uses";
+    const itemTimer = document.createElement("div");
+    itemTimer.className = "jb-item-timer";
+    this.itemTimerFillEl = document.createElement("div");
+    this.itemTimerFillEl.className = "jb-item-timer-fill";
+    itemTimer.appendChild(this.itemTimerFillEl);
+    this.itemChipEl.append(this.itemNameEl, this.itemHintEl, this.itemUsesEl, itemTimer);
+    hud.appendChild(this.itemChipEl);
+
+    // star invulnerability badge
+    this.starBadgeEl = document.createElement("div");
+    this.starBadgeEl.className = "jb-star-badge";
+    hud.appendChild(this.starBadgeEl);
 
     // debug overlay
     this.debugEl = document.createElement("div");
@@ -177,6 +220,30 @@ export class UIManager {
     diffSelect.addEventListener("change", () => this.opts.onDifficultyChange(diffSelect.value as AIDifficulty));
     diffRow.append(diffLabel, diffSelect);
     overlay.appendChild(diffRow);
+
+    const itemRow = document.createElement("div");
+    itemRow.className = "jb-pause-row";
+    const itemLabel = document.createElement("span");
+    itemLabel.textContent = "アイテム:";
+    const itemSelect = document.createElement("select");
+    const itemLabels: Record<ItemFrequency, string> = {
+      off: "なし",
+      low: "少なめ",
+      normal: "ふつう",
+      high: "多め",
+    };
+    for (const f of ["off", "low", "normal", "high"] as ItemFrequency[]) {
+      const opt = document.createElement("option");
+      opt.value = f;
+      opt.textContent = itemLabels[f];
+      if (f === this.opts.initialItemFrequency) opt.selected = true;
+      itemSelect.appendChild(opt);
+    }
+    itemSelect.addEventListener("change", () =>
+      this.opts.onItemFrequencyChange(itemSelect.value as ItemFrequency)
+    );
+    itemRow.append(itemLabel, itemSelect);
+    overlay.appendChild(itemRow);
 
     const volRow = document.createElement("div");
     volRow.className = "jb-pause-row";
@@ -300,6 +367,28 @@ export class UIManager {
 
     this.specialOverlayEl.style.transform = `scaleY(${state.specialCooldownFrac})`;
     this.specialIconEl.style.filter = state.specialReady ? "none" : "grayscale(0.6)";
+
+    this.updateItemChip(state.heldItem);
+
+    const starLeft = Math.ceil(state.starTimeLeft);
+    this.starBadgeEl.classList.toggle("jb-show", starLeft > 0);
+    if (starLeft > 0) this.starBadgeEl.textContent = `無敵 ${starLeft}`;
+  }
+
+  private updateItemChip(item: HeldItemUIState | null): void {
+    this.itemChipEl.classList.toggle("jb-show", item !== null);
+    if (!item) return;
+
+    const color = `#${item.color.toString(16).padStart(6, "0")}`;
+    this.itemChipEl.style.borderColor = color;
+    this.itemNameEl.textContent = item.name;
+    this.itemNameEl.style.color = color;
+    this.itemHintEl.textContent = item.hint;
+    // A single-use item shows nothing rather than "x1" — the count only means
+    // something once there is a number to watch come down.
+    this.itemUsesEl.textContent = item.usesLeft > 1 ? `×${item.usesLeft}` : "";
+    this.itemTimerFillEl.style.width = `${(item.timeFrac * 100).toFixed(1)}%`;
+    this.itemTimerFillEl.style.background = color;
   }
 
   showResult(win: boolean): void {

@@ -1,5 +1,6 @@
 export type QualityLevel = "low" | "medium" | "high";
 export type AIDifficulty = "easy" | "normal" | "hard";
+export type ItemFrequency = "off" | "low" | "normal" | "high";
 
 export interface QualitySettings {
   pixelRatioMax: number;
@@ -101,6 +102,22 @@ export const GameConfig = {
     touchLookMultiplier: 2.2,
   },
 
+  items: {
+    /** Seconds between spawn attempts, per frequency setting. 0 disables items. */
+    interval: { off: 0, low: 12, normal: 7, high: 3.6 } as Record<ItemFrequency, number>,
+    /** Pickups allowed on the stage at once, so a quiet match cannot carpet it. */
+    maxActive: 4,
+    /** Height items drop from — high enough to be spotted on the way down. */
+    spawnHeight: 13,
+    /** How far above the floor a landed item floats. */
+    restHeight: 0.35,
+    lifetime: 24,
+    /** Seconds of blinking before a pickup expires. */
+    blinkTime: 3,
+    /** Extra reach beyond the fighter's own radius for walking into a pickup. */
+    pickupRadius: 0.75,
+  },
+
   ai: {
     decisionInterval: { easy: 0.45, normal: 0.3, hard: 0.16 },
     reactionDelay: { easy: 0.35, normal: 0.18, hard: 0.06 },
@@ -115,4 +132,5 @@ export const STORAGE_KEYS = {
   volume: "joebra_volume",
   difficulty: "joebra_difficulty",
   character: "joebra_character",
+  items: "joebra_items",
 };

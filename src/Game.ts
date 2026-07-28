@@ -15,6 +15,7 @@ import { CharacterController, type CharacterIntent } from "./characters/Characte
 import { CPUController } from "./ai/CPUController";
 import { CHARACTERS, CHARACTER_ORDER, type CharacterId } from "./characters/characterData";
 import { CHARACTER_ATTACKS } from "./characters/attacks";
+import { ItemManager } from "./items/ItemManager";
 import { disposeObject3D } from "./utils/dispose";
 import {
   GameConfig,
@@ -22,6 +23,7 @@ import {
   STORAGE_KEYS,
   type QualityLevel,
   type AIDifficulty,
+  type ItemFrequency,
 } from "./config/gameConfig";
 import { CHARACTER_PERSONALITY } from "./ai/AIState";
 import { horizontalDistance } from "./combat/Hitbox";
@@ -49,6 +51,7 @@ export class Game {
   private audio = new AudioManager();
   private effects: EffectManager;
   private combat: CombatSystem;
+  private items: ItemManager;
   private stage: Stage;
   private cameraController: CameraController;
   private ui: UIManager;
@@ -65,6 +68,7 @@ export class Game {
 
   private quality: QualityLevel;
   private difficulty: AIDifficulty;
+  private itemFrequency: ItemFrequency;
   private phase: MatchPhase = "playing";
   /** Phase to restore when the character select screen is backed out of. */
   private phaseBeforeSelect: MatchPhase = "playing";
@@ -86,6 +90,7 @@ export class Game {
     const storedCharacter = readSetting(STORAGE_KEYS.character) as CharacterId | null;
     this.playerCharacterId =
       storedCharacter && storedCharacter in CHARACTERS ? storedCharacter : CHARACTER_ORDER[0];
+    this.itemFrequency = (readSetting(STORAGE_KEYS.items) as ItemFrequency | null) ?? "normal";
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.isMobile, powerPreference: "high-performance" });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -113,7 +118,22 @@ export class Game {
     this.applyRendererQuality();
     this.audio.preloadMusic(`${import.meta.env.BASE_URL}bgm/crown_of_the_fallen_king.mp3`);
 
-    this.controller = new CharacterController(this.stage, this.combat, this.effects, this.audio);
+    this.items = new ItemManager(
+      this.scene,
+      this.stage,
+      this.effects,
+      this.audio,
+      this.combat,
+      this.itemFrequency
+    );
+
+    this.controller = new CharacterController(
+      this.stage,
+      this.combat,
+      this.effects,
+      this.audio,
+      this.items
+    );
 
     this.player = this.spawnFighters();
 
@@ -123,12 +143,14 @@ export class Game {
       initialVolume: this.audio.getVolume(),
       initialMusicVolume: this.audio.getMusicVolume(),
       initialDifficulty: this.difficulty,
+      initialItemFrequency: this.itemFrequency,
       onPauseToggle: (paused) => this.setPaused(paused),
       onRestart: () => this.restart(),
       onQualityChange: (q) => this.setQuality(q),
       onVolumeChange: (v) => this.audio.setVolume(v),
       onMusicVolumeChange: (v) => this.audio.setMusicVolume(v),
       onDifficultyChange: (d) => this.setDifficulty(d),
+      onItemFrequencyChange: (f) => this.setItemFrequency(f),
       onCharacterSelect: () => this.openCharacterSelect(true),
     });
 
@@ -307,6 +329,9 @@ export class Game {
 
   /** Replaces every fighter (and its mesh) so the new pick takes the player slot. */
   private rebuildRoster(): void {
+    // Held item meshes hang off the fighters' hands, so they have to be
+    // released before the models they are parented to are disposed.
+    this.items.reset(this.fighters.map((f) => f.character));
     for (const f of this.fighters) {
       disposeObject3D(f.character.group);
     }
@@ -329,14 +354,16 @@ export class Game {
     this.controller.update(this.player, playerIntent, dt);
 
     const allChars = this.fighters.map((f) => f.character);
+    const itemTargets = this.items.itemTargets();
     for (const f of this.fighters) {
       if (!f.cpu) continue;
       const others = allChars.filter((c) => c !== f.character);
-      const intent = f.cpu.update(dt, f.character, others, this.stage);
+      const intent = f.cpu.update(dt, f.character, others, this.stage, itemTargets);
       this.controller.update(f.character, intent, dt);
     }
 
     this.combat.update(dt, allChars, this.stage.destructibles);
+    this.items.update(dt, allChars, this.stage.destructibles);
     this.stage.removeDestroyed();
 
     this.resolvePlatformCollisions();
@@ -468,6 +495,9 @@ export class Game {
       if (c.position.y < GameConfig.fallDeathY) {
         this.audio.play("fall");
         this.effects.spawnFallLight(c.position.clone());
+        // Whatever they were carrying goes down with them, so a stock loss
+        // always hands the item advantage back to the rest of the field.
+        this.items.releaseHeldItem(c);
         const eliminated = c.loseStock();
         if (eliminated) {
           c.alive = false;
@@ -576,12 +606,23 @@ export class Game {
 
     const specialCd = this.player.attackCooldowns.special;
     const specialMax = CHARACTER_ATTACKS[this.player.def.id].special.cooldown;
+    const held = this.player.heldItem;
 
     this.ui.update({
       fighters,
       matchTime: this.matchTime,
       specialCooldownFrac: specialMax > 0 ? clamp(specialCd / specialMax, 0, 1) : 0,
       specialReady: specialCd <= 0,
+      heldItem: held
+        ? {
+            name: held.def.name,
+            hint: held.def.hint,
+            color: held.def.color,
+            usesLeft: held.usesLeft,
+            timeFrac: held.def.holdTime > 0 ? clamp(held.timeLeft / held.def.holdTime, 0, 1) : 1,
+          }
+        : null,
+      starTimeLeft: this.player.starTimer,
     });
   }
 
@@ -598,6 +639,13 @@ export class Game {
     const lines = [
       `FPS: ${this.fpsDisplay}`,
       `objects: ${this.scene.children.length}  particles: ${this.effects.activeCount}  mines: ${this.combat.mineCount}`,
+      `items: ${this.items.activeCount}  projectiles: ${this.items.projectileCount}  freq:${this.itemFrequency}`,
+      // Item positions, so a pickup that never gets collected can be traced to
+      // where it actually landed rather than where it looks like it landed.
+      `itemPos: ${this.items
+        .itemTargets()
+        .map((t) => `(${t.position.x.toFixed(1)},${t.position.y.toFixed(1)},${t.position.z.toFixed(1)})`)
+        .join(" ") || "-"}`,
       `camera yaw:${((this.cameraController.yaw * 180) / Math.PI).toFixed(1)} pitch:${(
         (this.cameraController.pitch * 180) /
         Math.PI
@@ -632,6 +680,12 @@ export class Game {
     this.applyRendererQuality();
   }
 
+  private setItemFrequency(f: ItemFrequency): void {
+    this.itemFrequency = f;
+    writeSetting(STORAGE_KEYS.items, f);
+    this.items.setFrequency(f);
+  }
+
   private setDifficulty(d: AIDifficulty): void {
     this.difficulty = d;
     writeSetting(STORAGE_KEYS.difficulty, d);
@@ -661,6 +715,7 @@ export class Game {
     this.ui.setPaused(false);
     this.loop.setTimeScale(1);
     this.combat.dispose();
+    this.items.reset(this.fighters.map((f) => f.character));
     this.stage.resetDestructibles();
 
     const spawnPoints = this.stage.spawnPoints;

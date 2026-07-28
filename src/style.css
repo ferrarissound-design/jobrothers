@@ -223,6 +223,84 @@ html, body {
   transform-origin: bottom;
 }
 
+/* --- held item chip --- */
+.jb-item-chip {
+  position: absolute;
+  right: 12px;
+  bottom: 164px;
+  display: none;
+  width: 148px;
+  padding: 6px 9px;
+  border: 2px solid #fff;
+  border-radius: 10px;
+  background: rgba(10,10,18,.72);
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0,0,0,.8);
+}
+.jb-item-chip.jb-show { display: block; }
+
+.jb-item-name {
+  font-size: 13px;
+  font-weight: 900;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Leaves the top-right corner to the use counter, which overlays this row. */
+  padding-right: 26px;
+}
+
+.jb-item-hint {
+  font-size: 9.5px;
+  opacity: .75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jb-item-uses {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.jb-item-timer {
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: rgba(255,255,255,.2);
+  overflow: hidden;
+}
+.jb-item-timer-fill {
+  height: 100%;
+  width: 100%;
+}
+
+/* --- star invulnerability badge --- */
+.jb-star-badge {
+  position: absolute;
+  left: 50%;
+  top: 44px;
+  transform: translateX(-50%);
+  display: none;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffd54f, #ff9800);
+  color: #3a2400;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  box-shadow: 0 0 16px rgba(255,200,60,.8);
+  animation: jb-pulse-gold .6s infinite alternate;
+}
+.jb-star-badge.jb-show { display: block; }
+
+@keyframes jb-pulse-gold {
+  from { box-shadow: 0 0 8px rgba(255,200,60,.6); }
+  to { box-shadow: 0 0 22px rgba(255,220,120,1); }
+}
+
 /* --- controls hint --- */
 .jb-controls-hint {
   position: absolute;
@@ -699,3 +777,17 @@ html, body {
   font-size: 9px;
   border-width: 2px;
 }
+
+/* The bottom-right corner belongs to the action buttons on a phone, so the
+   item chip moves up beside the special wheel in the top-right instead. */
+.jb-hud-mobile .jb-item-chip {
+  top: 54px;
+  right: 8px;
+  bottom: auto;
+  width: 116px;
+  padding: 4px 7px;
+}
+.jb-hud-mobile .jb-item-name { font-size: 11px; }
+.jb-hud-mobile .jb-item-hint { font-size: 8.5px; }
+.jb-hud-mobile .jb-item-uses { font-size: 11px; top: 3px; right: 6px; }
+.jb-hud-mobile .jb-star-badge { top: 40px; font-size: 12px; padding: 3px 10px; }
