@@ -9,6 +9,8 @@ export type SfxName =
   | "explosion"
   | "jump"
   | "fall"
+  | "pickup"
+  | "blaster"
   | "win"
   | "lose";
 
@@ -161,6 +163,16 @@ export class AudioManager {
         break;
       case "fall":
         this.tone(now, 420, 90, "sine", 0.3, 0.15);
+        break;
+      // A rising two-note chime: short enough to fire mid-fight, distinct from
+      // every hit sound so a pickup is never mistaken for taking damage.
+      case "pickup":
+        this.tone(now, 660, 990, "triangle", 0.1, 0.07);
+        this.tone(now + 0.07, 990, 1320, "triangle", 0.12, 0.06);
+        break;
+      case "blaster":
+        this.tone(now, 900, 320, "sawtooth", 0.1, 0.06);
+        this.noiseHit(now, 0.06, 3200, 0.15);
         break;
       case "win":
         this.melody(now, [523, 659, 784, 1047]);

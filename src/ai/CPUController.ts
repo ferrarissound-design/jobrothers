@@ -3,9 +3,26 @@ import type { Character } from "../characters/Character";
 import type { CharacterIntent } from "../characters/CharacterController";
 import type { Stage } from "../stage/Stage";
 import { AI_PERSONALITIES, type AIPersonality, type AIPersonalityConfig } from "./AIState";
+import type { ItemTarget } from "../items/ItemManager";
 import { GameConfig, type AIDifficulty } from "../config/gameConfig";
 import { dampAngle, clamp, randRange } from "../utils/math";
 import { horizontalDistance } from "../combat/Hitbox";
+
+/** How far a CPU will travel out of its way for a pickup, in meters, by difficulty. */
+const ITEM_INTEREST_RADIUS: Record<AIDifficulty, number> = {
+  easy: 5,
+  normal: 10,
+  hard: 17,
+};
+
+/** Signed angle, in radians, between where `self` is facing and where `target` is. */
+function angleDelta(self: Character, target: Character): number {
+  const desired = Math.atan2(target.position.x - self.position.x, target.position.z - self.position.z);
+  let delta = desired - self.facingAngle;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
 
 function emptyIntent(): CharacterIntent {
   return {
@@ -36,6 +53,8 @@ export class CPUController {
   private targetId: string | null = null;
   private reactingToKey: string | null = null;
   private reactionTimer = 0;
+  /** Pickup this fighter is currently walking towards, if any. */
+  private itemGoal: ItemTarget | null = null;
 
   constructor(personality: AIPersonality, difficulty: AIDifficulty) {
     this.personality = personality;
@@ -54,9 +73,16 @@ export class CPUController {
     this.reactingToKey = null;
     this.reactionTimer = 0;
     this.decisionTimer = 0;
+    this.itemGoal = null;
   }
 
-  update(dt: number, self: Character, others: Character[], stage: Stage): CharacterIntent {
+  update(
+    dt: number,
+    self: Character,
+    others: Character[],
+    stage: Stage,
+    items: ItemTarget[] = []
+  ): CharacterIntent {
     if (!self.alive) return emptyIntent();
 
     // Button presses are pulses, not held inputs. Clear them before making this
@@ -74,13 +100,75 @@ export class CPUController {
     this.decisionTimer -= dt;
     if (this.decisionTimer <= 0) {
       this.decisionTimer = GameConfig.ai.decisionInterval[this.difficulty] * (0.8 + Math.random() * 0.4);
+      this.chooseItemGoal(self, items);
       this.makeDecision(self, alive, cfg);
     }
 
     this.reactToThreats(dt, self, alive, cfg);
+    if (this.itemGoal && this.steerToItem(self, stage)) return this.intent;
     this.steer(self, alive, stage, cfg);
 
     return this.intent;
+  }
+
+  // --- items -------------------------------------------------------------
+
+  /**
+   * Picks a pickup worth detouring for. The search radius scales with
+   * difficulty: an easy CPU only notices what it nearly walks into, while a
+   * hard one will cross the arena for a weapon — which is most of what makes
+   * the item game feel contested rather than free for the player.
+   */
+  private chooseItemGoal(self: Character, items: ItemTarget[]): void {
+    if (self.heldItem || items.length === 0) {
+      this.itemGoal = null;
+      return;
+    }
+
+    const reach = ITEM_INTEREST_RADIUS[this.difficulty];
+    let best: ItemTarget | null = null;
+    let bestDist = Infinity;
+    for (const item of items) {
+      const dist = horizontalDistance(self.position, item.position);
+      // Chasing something still in the air means standing in the open under it;
+      // the extra tolerance is what lets a CPU camp a landing spot.
+      if (dist > (item.falling ? reach * 0.6 : reach)) continue;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = item;
+      }
+    }
+    this.itemGoal = best;
+  }
+
+  /** @returns true when the CPU is committed to the pickup and normal steering should be skipped. */
+  private steerToItem(self: Character, stage: Stage): boolean {
+    const goal = this.itemGoal;
+    if (!goal || self.heldItem) {
+      this.itemGoal = null;
+      return false;
+    }
+
+    const toItem = new THREE.Vector3().subVectors(goal.position, self.position);
+    toItem.y = 0;
+    const dist = toItem.length();
+    if (dist > 0.001) toItem.normalize();
+
+    // Never chase a pickup off the edge — a free wrench is not worth a stock.
+    const nextX = self.position.x + toItem.x * 1.5;
+    const nextZ = self.position.z + toItem.z * 1.5;
+    if (stage.isOverVoid(nextX, nextZ)) {
+      this.itemGoal = null;
+      return false;
+    }
+
+    self.facingAngle = dampAngle(self.facingAngle, Math.atan2(toItem.x, toItem.z), 10, 1 / 60);
+    this.intent.moveX = clamp(toItem.x, -1, 1);
+    this.intent.moveZ = clamp(toItem.z, -1, 1);
+    this.intent.wantDash = dist > 6;
+    // A pickup sitting on a platform has to be jumped up to.
+    if (goal.position.y > self.position.y + 1.2 && self.grounded) this.intent.wantJump = true;
+    return true;
   }
 
   // --- strategy (runs on decision interval) ---------------------------
@@ -94,6 +182,19 @@ export class CPUController {
 
     const dist = horizontalDistance(self.position, target.position);
     const mistake = Math.random() < GameConfig.ai.mistakeChance[this.difficulty];
+
+    // A ranged item rewrites the CPU's idea of "in range": it should be firing
+    // the blaster or lobbing the bomb from where its bare fists would be useless.
+    const itemUse = self.heldItem?.def.use;
+    if ((itemUse === "shoot" || itemUse === "throw") && self.grounded && self.hitstunTimer <= 0) {
+      const itemRange = itemUse === "shoot" ? 18 : 9;
+      const facingTarget = Math.abs(angleDelta(self, target)) < 0.5;
+      if (dist <= itemRange && facingTarget && !mistake && self.attackCooldowns.light <= 0) {
+        this.intent.wantLight = true;
+        return;
+      }
+    }
+
     const inRange = dist <= cfg.preferredRange * 1.15;
     const wantsToBeCareful = self.damagePercent > cfg.cautiousDamageThreshold && !mistake;
 

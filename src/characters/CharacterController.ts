@@ -8,6 +8,8 @@ import {
 } from "./abilities";
 import type { Stage } from "../stage/Stage";
 import type { CombatSystem } from "../combat/CombatSystem";
+import type { ItemManager } from "../items/ItemManager";
+import { STAR_SPEED_MULT } from "../items/itemData";
 import type { EffectManager } from "../core/EffectManager";
 import type { AudioManager } from "../core/AudioManager";
 import { GameConfig } from "../config/gameConfig";
@@ -42,7 +44,8 @@ export class CharacterController {
     private stage: Stage,
     private combat: CombatSystem,
     private effects: EffectManager,
-    private audio: AudioManager
+    private audio: AudioManager,
+    private items: ItemManager
   ) {}
 
   update(c: Character, intent: CharacterIntent, dt: number): void {
@@ -159,6 +162,7 @@ export class CharacterController {
 
     let speed = c.stats.moveSpeed;
     if (c.hyperMode) speed *= HYPER_MODE_SPEED_MULT;
+    if (c.starTimer > 0) speed *= STAR_SPEED_MULT;
 
     if (intent.wantDash && c.grounded && c.dashStamina > 4 && mag > 0.1) {
       speed *= GameConfig.dash.speedMultiplier;
@@ -240,6 +244,12 @@ export class CharacterController {
   // --- attacks --------------------------------------------------------
 
   private tryAttacks(c: Character, intent: CharacterIntent): void {
+    // A held item takes over the light attack — the character's own specials and
+    // heavy attack stay available, so picking one up never disarms you.
+    if (intent.wantLight && c.heldItem && c.attackCooldowns.light <= 0) {
+      this.useItem(c);
+      return;
+    }
     if (intent.wantSpecial && c.attackCooldowns.special <= 0) {
       this.triggerAttack(c, "special");
     } else if (intent.wantHeavy && c.attackCooldowns.heavy <= 0) {
@@ -247,6 +257,26 @@ export class CharacterController {
     } else if (intent.wantLight && c.attackCooldowns.light <= 0) {
       this.triggerAttack(c, "light");
     }
+  }
+
+  private useItem(c: Character): void {
+    const action = this.items.useHeldItem(c);
+    if (!action) return;
+
+    if (action.kind === "attack") {
+      c.attackCooldowns.light = action.attack.cooldown;
+      this.beginAttack(c, action.attack);
+      return;
+    }
+
+    // Throwing / firing has no hitbox of its own — the projectile carries it —
+    // so the fighter just locks into a short recovery.
+    c.attackCooldowns.light = action.recovery;
+    c.state = "attack";
+    c.currentAttack = null;
+    c.attackPhase = "recovery";
+    c.attackTimer = action.recovery;
+    c.isDashing = false;
   }
 
   private triggerAttack(c: Character, kind: "light" | "heavy" | "special"): void {
@@ -277,13 +307,18 @@ export class CharacterController {
       }
     }
 
+    this.beginAttack(c, def);
+  }
+
+  /** Puts a fighter into the startup/active/recovery pipeline for one attack. */
+  private beginAttack(c: Character, def: AttackDef): void {
     c.currentAttack = def;
     c.attackPhase = "startup";
     c.attackTimer = def.startup;
     c.state = "attack";
     c.hitTargetsThisAttack.clear();
     c.isDashing = false;
-    this.audio.play(kind === "light" ? "lightAttack" : def.sound);
+    this.audio.play(def.sound);
   }
 
   private spawnSwingEffect(c: Character, attack: AttackDef): void {

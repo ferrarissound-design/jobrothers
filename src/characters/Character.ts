@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { CharacterDef, CharacterStats } from "./characterData";
 import { createCharacterMesh, type CharacterParts } from "./characterMeshFactory";
 import type { AttackDef } from "./attacks";
+import type { ItemDef } from "../items/itemData";
 import { GameConfig } from "../config/gameConfig";
 
 export type CharacterState =
@@ -17,6 +18,15 @@ export type CharacterState =
   | "dead";
 
 export type AttackPhase = "startup" | "active" | "recovery" | null;
+
+/** An item currently in a fighter's hand. Owned by ItemManager, which builds and disposes the mesh. */
+export interface HeldItem {
+  def: ItemDef;
+  usesLeft: number;
+  /** Seconds before the item is discarded, whether or not it has uses left. */
+  timeLeft: number;
+  mesh: THREE.Object3D;
+}
 
 export interface FighterLabel {
   instanceId: string; // "player" | "cpu1" | "cpu2" | "cpu3"
@@ -81,6 +91,10 @@ export class Character {
   hyperModeTimer = 0;
   paralyzedTimer = 0;
 
+  heldItem: HeldItem | null = null;
+  /** Remaining seconds of the star item's invulnerability (drives the aura + speed boost). */
+  starTimer = 0;
+
   animTime = 0;
   hitFlashTimer = 0;
   squash = 1;
@@ -139,6 +153,9 @@ export class Character {
     this.hyperMode = false;
     this.hyperModeTimer = 0;
     this.paralyzedTimer = 0;
+    this.starTimer = 0;
+    // heldItem is deliberately absent from this reset: only ItemManager can
+    // dispose the item's mesh, so it is the one that takes the item away.
     this.group.scale.set(1, 1, 1);
     this.syncMesh();
   }
