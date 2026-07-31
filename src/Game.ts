@@ -9,7 +9,10 @@ import { CameraController } from "./camera/CameraController";
 import { UIManager, type FighterUIState } from "./ui/UIManager";
 import { MobileControls, isMobileDevice } from "./ui/MobileControls";
 import { CharacterSelect } from "./ui/CharacterSelect";
+import { StageSelect } from "./ui/StageSelect";
 import { CharacterPreview } from "./render/CharacterPreview";
+import { StagePreview } from "./render/StagePreview";
+import { STAGES, DEFAULT_STAGE_ID, type StageDef, type StageId } from "./stage/stageData";
 import { Character } from "./characters/Character";
 import { CharacterController, type CharacterIntent } from "./characters/CharacterController";
 import { CPUController } from "./ai/CPUController";
@@ -56,15 +59,30 @@ export class Game {
   private cameraController: CameraController;
   private ui: UIManager;
   private select: CharacterSelect;
+  private stageSelect: StageSelect;
   private preview?: CharacterPreview;
+  private stagePreview?: StagePreview;
   private mobileControls?: MobileControls;
   private isMobile: boolean;
-  private sunLight: THREE.DirectionalLight;
+  private hemiLight!: THREE.HemisphereLight;
+  private fillLight!: THREE.AmbientLight;
+  private rimLight!: THREE.DirectionalLight;
+  private sunLight!: THREE.DirectionalLight;
 
   private fighters: FighterEntry[] = [];
   private player: Character;
   private controller: CharacterController;
   private playerCharacterId: CharacterId;
+  private stageId: StageId;
+
+  /** Which screen of the select flow is showing. */
+  private selectStep: "character" | "stage" = "character";
+  /** Which button opened the flow, which is what "back" means on the stage screen. */
+  private selectEntry: "character" | "stage" = "character";
+  /** Whether the flow can be backed out of at all — false at boot. */
+  private selectCancellable = false;
+  /** Fighter picked on the first screen, applied once the stage is confirmed. */
+  private pendingCharacterId: CharacterId;
 
   private quality: QualityLevel;
   private difficulty: AIDifficulty;
@@ -90,6 +108,9 @@ export class Game {
     const storedCharacter = readSetting(STORAGE_KEYS.character) as CharacterId | null;
     this.playerCharacterId =
       storedCharacter && storedCharacter in CHARACTERS ? storedCharacter : CHARACTER_ORDER[0];
+    this.pendingCharacterId = this.playerCharacterId;
+    const storedStage = readSetting(STORAGE_KEYS.stage) as StageId | null;
+    this.stageId = storedStage && storedStage in STAGES ? storedStage : DEFAULT_STAGE_ID;
     this.itemFrequency = (readSetting(STORAGE_KEYS.items) as ItemFrequency | null) ?? "normal";
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.isMobile, powerPreference: "high-performance" });
@@ -104,17 +125,16 @@ export class Game {
       onCameraShake: (a) => this.cameraController.triggerShake(a),
     });
 
-    this.stage = new Stage(this.scene, this.effects, QUALITY_PRESETS[this.quality], (pos) => {
-      this.combat.applyExplosionDamage(
-        pos,
-        3.2,
-        15,
-        12,
-        this.fighters.map((f) => f.character)
-      );
-    });
+    this.stage = new Stage(
+      this.scene,
+      this.effects,
+      QUALITY_PRESETS[this.quality],
+      (pos) => this.explodeAt(pos),
+      STAGES[this.stageId]
+    );
 
-    this.sunLight = this.setupLighting();
+    this.setupLighting();
+    this.applyStageLighting(this.stage.def);
     this.applyRendererQuality();
     this.audio.preloadMusic(`${import.meta.env.BASE_URL}bgm/crown_of_the_fallen_king.mp3`);
 
@@ -152,12 +172,19 @@ export class Game {
       onDifficultyChange: (d) => this.setDifficulty(d),
       onItemFrequencyChange: (f) => this.setItemFrequency(f),
       onCharacterSelect: () => this.openCharacterSelect(true),
+      onStageSelect: () => this.openStageSelect(true),
     });
 
     this.select = new CharacterSelect(uiRoot, {
       onHighlight: (id) => this.preview?.setCharacter(CHARACTERS[id]),
       onConfirm: (id) => this.confirmCharacter(id),
-      onCancel: () => this.closeCharacterSelect(),
+      onCancel: () => this.closeSelect(),
+    });
+
+    this.stageSelect = new StageSelect(uiRoot, {
+      onHighlight: (id) => this.stagePreview?.setStage(STAGES[id]),
+      onConfirm: (id) => this.confirmStage(id),
+      onCancel: () => this.cancelStageSelect(),
     });
 
     if (this.isMobile) {
@@ -198,32 +225,68 @@ export class Game {
     this.loop.start();
   }
 
-  private setupLighting(): THREE.DirectionalLight {
-    // Cel shading only bands where *direct* light dominates: ambient fill lands
-    // outside the toon ramp, so too much of it flattens the fighters back into
-    // untinted silhouettes. Keep the sky wash low and let the sun carry the
-    // exposure, with a cool back light for the rim animation always draws.
-    const ambient = new THREE.HemisphereLight(0x8ecdf0, 0x3f6b2a, 1.3);
-    this.scene.add(ambient);
-    const fill = new THREE.AmbientLight(0xffffff, 0.25);
-    this.scene.add(fill);
-    const rim = new THREE.DirectionalLight(0xbfe0ff, 1.0);
-    rim.position.set(-12, 14, -18);
-    this.scene.add(rim);
-    const sun = new THREE.DirectionalLight(0xfff2d8, 3.1);
-    sun.position.set(15, 24, 10);
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -30;
-    sun.shadow.camera.right = 30;
-    sun.shadow.camera.top = 30;
-    sun.shadow.camera.bottom = -30;
-    sun.shadow.camera.far = 80;
-    sun.shadow.bias = -0.0025;
-    this.scene.add(sun);
-    this.scene.background = new THREE.Color(GameConfig.skyColor);
+  /**
+   * Creates the four lights the arena is lit by, but not their colours: those
+   * belong to the stage, which can change mid-session, and are applied by
+   * `applyStageLighting`.
+   */
+  private setupLighting(): void {
+    this.hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 1);
+    this.fillLight = new THREE.AmbientLight(0xffffff, 0.25);
+    this.rimLight = new THREE.DirectionalLight(0xffffff, 1);
+    this.sunLight = new THREE.DirectionalLight(0xffffff, 3);
+    this.sunLight.shadow.mapSize.set(1024, 1024);
+    this.sunLight.shadow.camera.left = -30;
+    this.sunLight.shadow.camera.right = 30;
+    this.sunLight.shadow.camera.top = 30;
+    this.sunLight.shadow.camera.bottom = -30;
+    this.sunLight.shadow.camera.far = 80;
+    this.sunLight.shadow.bias = -0.0025;
+    this.scene.add(this.hemiLight, this.fillLight, this.rimLight, this.sunLight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
-    return sun;
+  }
+
+  /**
+   * Repaints the scene in one stage's light — sky, sun, rim and exposure.
+   *
+   * Cel shading only bands where *direct* light dominates: ambient fill lands
+   * outside the toon ramp, so too much of it flattens the fighters back into
+   * untinted silhouettes. Every stage therefore keeps its sky wash low and lets
+   * the sun carry the exposure, with a back light for the rim animation always
+   * draws — what changes between stages is the colour and the sun's angle.
+   */
+  private applyStageLighting(def: StageDef): void {
+    const l = def.lighting;
+    this.hemiLight.color.setHex(l.hemiSky);
+    this.hemiLight.groundColor.setHex(l.hemiGround);
+    this.hemiLight.intensity = l.hemiIntensity;
+    this.fillLight.intensity = l.ambientIntensity;
+    this.rimLight.color.setHex(l.rimColor);
+    this.rimLight.intensity = l.rimIntensity;
+    this.rimLight.position.set(...l.rimPosition);
+    this.sunLight.color.setHex(l.sunColor);
+    this.sunLight.intensity = l.sunIntensity;
+    this.sunLight.position.set(...l.sunPosition);
+    this.scene.background = new THREE.Color(l.sky);
+    this.renderer.toneMappingExposure = l.exposure;
+    this.applyFog();
+  }
+
+  /** Fog colour comes from the stage, its far plane from the quality preset. */
+  private applyFog(): void {
+    const l = this.stage.def.lighting;
+    this.scene.fog = new THREE.Fog(l.sky, l.fogNear, QUALITY_PRESETS[this.quality].drawDistance);
+  }
+
+  /** Damage from a drum detonating on the stage, applied to everyone nearby. */
+  private explodeAt(position: THREE.Vector3): void {
+    this.combat.applyExplosionDamage(
+      position,
+      3.2,
+      15,
+      12,
+      this.fighters.map((f) => f.character)
+    );
   }
 
   /**
@@ -257,20 +320,38 @@ export class Game {
     return player;
   }
 
-  // --- character select ---------------------------------------------------
+  // --- select flow --------------------------------------------------------
 
   /**
-   * Freezes the match (if any) and hands the screen to the roster screen plus
-   * its 3D portrait. The portrait is built here and torn down on close rather
-   * than kept alive for the whole session: it holds a second character model,
-   * which is exactly the kind of memory a phone does not have spare mid-match.
+   * Freezes the match (if any) and starts the two-step setup flow: fighter,
+   * then stage, then a fresh match. This is the "set up a new match" entry
+   * point — `openStageSelect` is the shortcut for changing only where it is
+   * fought, leaving the roster alone.
    *
    * @param cancellable false at boot, where there is no match to return to.
    */
   private openCharacterSelect(cancellable: boolean): void {
     if (this.phase === "select") return;
+    this.enterSelectPhase();
+    this.selectEntry = "character";
+    this.selectCancellable = cancellable;
+    this.showCharacterStep(cancellable);
+  }
+
+  /** Jumps straight to the stage screen, keeping the current roster. */
+  private openStageSelect(cancellable: boolean): void {
+    if (this.phase === "select") return;
+    this.enterSelectPhase();
+    this.selectEntry = "stage";
+    this.selectCancellable = cancellable;
+    this.showStageStep(cancellable);
+  }
+
+  /** Shared setup for both entry points: stop the match and clear the HUD away. */
+  private enterSelectPhase(): void {
     this.phaseBeforeSelect = this.phase;
     this.phase = "select";
+    this.pendingCharacterId = this.playerCharacterId;
 
     this.ui.setPaused(false);
     this.ui.hideResult();
@@ -279,15 +360,57 @@ export class Game {
     this.mobileControls?.setVisible(false);
     this.audio.setMusicDucked(true);
     this.loop.setTimeScale(1);
-
-    this.preview = new CharacterPreview();
-    this.preview.setViewport(window.innerWidth, window.innerHeight);
-    this.preview.setCharacter(CHARACTERS[this.playerCharacterId]);
-    this.select.open(this.playerCharacterId, cancellable);
   }
 
-  /** Backs out of the roster screen, restoring whatever overlay was up before it. */
-  private closeCharacterSelect(): void {
+  /**
+   * The 3D half of each screen is built on entry and disposed on leaving rather
+   * than kept alive for the session: each holds a scene of its own, and a spare
+   * character model or arena diorama is exactly the kind of memory a phone does
+   * not have going spare mid-match.
+   */
+  private showCharacterStep(cancellable: boolean): void {
+    this.selectStep = "character";
+    this.stageSelect.close();
+    this.disposePreviews();
+    this.preview = new CharacterPreview();
+    this.preview.setViewport(window.innerWidth, window.innerHeight);
+    this.preview.setCharacter(CHARACTERS[this.pendingCharacterId]);
+    this.select.open(this.pendingCharacterId, cancellable);
+  }
+
+  private showStageStep(cancellable: boolean): void {
+    this.selectStep = "stage";
+    this.select.close();
+    this.disposePreviews();
+    this.stagePreview = new StagePreview();
+    this.stagePreview.setViewport(window.innerWidth, window.innerHeight);
+    this.stagePreview.setStage(STAGES[this.stageId]);
+    this.stageSelect.open(this.stageId, cancellable);
+  }
+
+  private disposePreviews(): void {
+    this.preview?.dispose();
+    this.preview = undefined;
+    this.stagePreview?.dispose();
+    this.stagePreview = undefined;
+  }
+
+  /** Fighter chosen: hold on to it and move on to the stage screen. */
+  private confirmCharacter(id: CharacterId): void {
+    this.pendingCharacterId = id;
+    // Always cancellable from here: "back" returns to the fighter cards, which
+    // is the step the player just came from.
+    this.showStageStep(true);
+  }
+
+  /** "Back" on the stage screen: to the fighter cards, or out of the flow entirely. */
+  private cancelStageSelect(): void {
+    if (this.selectEntry === "character") this.showCharacterStep(this.selectCancellable);
+    else this.closeSelect();
+  }
+
+  /** Backs out of the flow, restoring whatever overlay was up before it. */
+  private closeSelect(): void {
     this.teardownSelect();
     this.phase = this.phaseBeforeSelect;
     if (this.phase === "result") {
@@ -304,8 +427,8 @@ export class Game {
 
   private teardownSelect(): void {
     this.select.close();
-    this.preview?.dispose();
-    this.preview = undefined;
+    this.stageSelect.close();
+    this.disposePreviews();
     this.ui.setHudVisible(true);
     this.mobileControls?.setVisible(true);
     // Menu navigation runs on the same keys as combat; without this the Space
@@ -313,18 +436,46 @@ export class Game {
     this.input.clearTransient();
   }
 
-  /** Locks in the chosen fighter and starts a fresh match with the new roster. */
-  private confirmCharacter(id: CharacterId): void {
-    const changed = id !== this.playerCharacterId;
-    this.playerCharacterId = id;
-    writeSetting(STORAGE_KEYS.character, id);
+  /** Locks in the stage (and whatever fighter was picked on the way here) and starts a fresh match. */
+  private confirmStage(id: StageId): void {
+    const characterChanged = this.pendingCharacterId !== this.playerCharacterId;
+    this.playerCharacterId = this.pendingCharacterId;
+    writeSetting(STORAGE_KEYS.character, this.playerCharacterId);
 
     this.teardownSelect();
-    if (changed) this.rebuildRoster();
+    this.applyStage(id);
+    if (characterChanged) this.rebuildRoster();
 
     // restart() puts the phase back to "playing" and clears the previous match.
     this.restart();
     this.cameraController.reset(this.player.facingAngle);
+  }
+
+  /**
+   * Swaps the arena out. A stage owns its own meshes and breakable props, so
+   * the old one is disposed outright and a new one built in its place, then
+   * everything holding a reference to it is repointed. Loose items and mines go
+   * first: they are positioned against a floor that is about to stop existing.
+   */
+  private applyStage(id: StageId): void {
+    if (id === this.stageId) return;
+    this.stageId = id;
+    writeSetting(STORAGE_KEYS.stage, id);
+
+    this.items.reset(this.fighters.map((f) => f.character));
+    this.combat.dispose();
+    this.stage.dispose();
+
+    this.stage = new Stage(
+      this.scene,
+      this.effects,
+      QUALITY_PRESETS[this.quality],
+      (pos) => this.explodeAt(pos),
+      STAGES[id]
+    );
+    this.items.setStage(this.stage);
+    this.controller.setStage(this.stage);
+    this.applyStageLighting(this.stage.def);
   }
 
   /** Replaces every fighter (and its mesh) so the new pick takes the player slot. */
@@ -545,11 +696,12 @@ export class Game {
     this.lastFrameTime = now;
 
     if (this.phase === "select") {
-      // The roster screen replaces the arena entirely: the match scene is not
-      // drawn at all, so the portrait keeps a full frame budget to itself.
+      // The select screens replace the arena entirely: the match scene is not
+      // drawn at all, so whichever preview is up keeps a full frame budget.
       this.input.endFrame();
-      this.preview?.update(realDt);
-      this.preview?.render(this.renderer);
+      const preview = this.selectStep === "stage" ? this.stagePreview : this.preview;
+      preview?.update(realDt);
+      preview?.render(this.renderer);
       return;
     }
 
@@ -700,7 +852,7 @@ export class Game {
     this.renderer.shadowMap.enabled = q.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.sunLight.castShadow = q.shadows;
-    this.scene.fog = new THREE.Fog(GameConfig.skyColor, 40, q.drawDistance);
+    this.applyFog();
     this.cameraController.camera.far = q.drawDistance + 30;
     this.cameraController.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight, true);
@@ -731,6 +883,7 @@ export class Game {
     this.cameraController.setAspect(window.innerWidth / window.innerHeight);
     this.renderer.setSize(window.innerWidth, window.innerHeight, true);
     this.preview?.setViewport(window.innerWidth, window.innerHeight);
+    this.stagePreview?.setViewport(window.innerWidth, window.innerHeight);
   }
 
   /**

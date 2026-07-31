@@ -380,6 +380,8 @@ html, body {
 .jb-pause-overlay.jb-show { display: flex; }
 .jb-pause-overlay h2 { font-size: 40px; margin-bottom: 20px; }
 .jb-pause-row { display: flex; gap: 10px; align-items: center; margin: 6px 0; }
+/* The action row carries four buttons, which is more than a phone fits on one line. */
+.jb-pause-btns { flex-wrap: wrap; justify-content: center; }
 .jb-pause-overlay button {
   pointer-events: auto;
   cursor: pointer;
@@ -545,6 +547,25 @@ html, body {
   font-size: 12px;
   font-weight: 700;
   color: #ffd54f;
+}
+
+/* Stage characteristics, in place of the fighter screen's special-move line. */
+.jb-cs-traits {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.jb-cs-traits li {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255,255,255,.1);
+  border: 1px solid rgba(255,255,255,.18);
 }
 
 .jb-cs-actions {

@@ -41,8 +41,7 @@ export const QUALITY_PRESETS: Record<QualityLevel, QualitySettings> = {
 export const GameConfig = {
   gravity: -28,
   fallDeathY: -14,
-  arenaRadius: 26,
-  skyColor: 0x87ceeb,
+  // Arena size and sky colour are per-stage; see src/stage/stageData.ts.
   initialStocks: 3,
   matchTimeLimit: 180, // seconds, 0 = no limit (kept generous for MVP)
   respawnInvulnDuration: 2.2,
@@ -132,5 +131,6 @@ export const STORAGE_KEYS = {
   volume: "joebra_volume",
   difficulty: "joebra_difficulty",
   character: "joebra_character",
+  stage: "joebra_stage",
   items: "joebra_items",
 };

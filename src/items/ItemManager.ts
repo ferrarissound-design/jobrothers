@@ -77,6 +77,16 @@ export class ItemManager {
     this.spawnTimer = this.nextSpawnDelay();
   }
 
+  /**
+   * Repoints spawning and ground queries at a freshly built arena. Callers are
+   * responsible for clearing the field first (see `reset`) — anything still
+   * lying around belongs to the stage that was just disposed.
+   */
+  setStage(stage: Stage): void {
+    this.stage = stage;
+    this.spawnTimer = this.nextSpawnDelay();
+  }
+
   setFrequency(frequency: ItemFrequency): void {
     this.frequency = frequency;
     this.spawnTimer = Math.min(this.spawnTimer, this.nextSpawnDelay());
