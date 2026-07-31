@@ -47,6 +47,8 @@ export interface UIManagerOptions {
   onItemFrequencyChange: (f: ItemFrequency) => void;
   /** Opens the character select screen from the pause or result overlay. */
   onCharacterSelect: () => void;
+  /** Jumps straight to the stage select screen, skipping the fighter step. */
+  onStageSelect: () => void;
 }
 
 interface PanelRefs {
@@ -170,7 +172,11 @@ export class UIManager {
     selectBtn.className = "jb-result-btn jb-result-btn-alt";
     selectBtn.textContent = "キャラクター選択";
     selectBtn.addEventListener("click", () => this.opts.onCharacterSelect());
-    resultBtns.append(restartBtn, selectBtn);
+    const stageBtn = document.createElement("button");
+    stageBtn.className = "jb-result-btn jb-result-btn-alt";
+    stageBtn.textContent = "ステージ選択";
+    stageBtn.addEventListener("click", () => this.opts.onStageSelect());
+    resultBtns.append(restartBtn, selectBtn, stageBtn);
     this.resultEl.append(this.resultTitleEl, resultBtns);
     hud.appendChild(this.resultEl);
 
@@ -274,7 +280,7 @@ export class UIManager {
     overlay.appendChild(musicVolRow);
 
     const btnRow = document.createElement("div");
-    btnRow.className = "jb-pause-row";
+    btnRow.className = "jb-pause-row jb-pause-btns";
     const resumeBtn = document.createElement("button");
     resumeBtn.textContent = "再開";
     resumeBtn.addEventListener("click", () => this.togglePause());
@@ -284,7 +290,10 @@ export class UIManager {
     const selectBtn = document.createElement("button");
     selectBtn.textContent = "キャラクター選択";
     selectBtn.addEventListener("click", () => this.opts.onCharacterSelect());
-    btnRow.append(resumeBtn, restartBtn, selectBtn);
+    const stageBtn = document.createElement("button");
+    stageBtn.textContent = "ステージ選択";
+    stageBtn.addEventListener("click", () => this.opts.onStageSelect());
+    btnRow.append(resumeBtn, restartBtn, selectBtn, stageBtn);
     overlay.appendChild(btnRow);
 
     hud.appendChild(overlay);

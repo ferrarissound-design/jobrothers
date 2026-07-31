@@ -1,54 +1,41 @@
-import {
-  CHARACTERS,
-  CHARACTER_ORDER,
-  type CharacterDef,
-  type CharacterId,
-  type CharacterStats,
-} from "../characters/characterData";
-import { CHARACTER_ATTACKS } from "../characters/attacks";
+import { STAGES, STAGE_ORDER, type StageDef, type StageId } from "../stage/stageData";
 
-export interface CharacterSelectOptions {
-  /** Fires whenever the cursor lands on a different fighter (drives the 3D preview). */
-  onHighlight: (id: CharacterId) => void;
+export interface StageSelectOptions {
+  /** Fires whenever the cursor lands on a different stage (drives the 3D diorama). */
+  onHighlight: (id: StageId) => void;
   /** Fires when the player locks their choice in; the caller starts the match. */
-  onConfirm: (id: CharacterId) => void;
+  onConfirm: (id: StageId) => void;
   /** Fires when the player backs out; only reachable when `open` was told the screen is cancellable. */
   onCancel: () => void;
 }
 
 interface StatBar {
   label: string;
-  /** Pulls the comparable number out of a fighter's stat block. */
-  read: (stats: CharacterStats) => number;
+  read: (def: StageDef) => number;
 }
 
 const STAT_BARS: StatBar[] = [
-  { label: "スピード", read: (s) => s.moveSpeed },
-  { label: "パワー", read: (s) => s.attackPower },
-  { label: "ふっとばし", read: (s) => s.knockbackPower },
-  { label: "ジャンプ", read: (s) => s.jumpPower },
-  { label: "防御", read: (s) => s.defense },
-  { label: "重さ", read: (s) => s.weight },
-  { label: "必殺技", read: (s) => s.specialPower },
+  { label: "広さ", read: (s) => s.arenaRadius },
+  { label: "足場の数", read: (s) => s.platforms.length },
+  { label: "こわせる数", read: (s) => s.destructibles.length },
 ];
 
 /**
- * Normalises a stat against the rest of the roster so the bars compare
- * fighters to each other rather than to an absolute scale — the numbers
- * themselves (6.2 m/s, 1.12x defense) mean nothing to a player, but "fastest
- * on the roster" does. The floor keeps the weakest entry visible as a stub
- * instead of an empty row.
+ * Same normalisation the fighter stat bars use: a stage's numbers are only
+ * meaningful next to the other stages', so the bars compare the roster to
+ * itself rather than to an absolute scale, with a floor that keeps the
+ * smallest entry visible as a stub instead of an empty row.
  */
-function normalizedStat(bar: StatBar, def: CharacterDef): number {
+function normalizedStat(bar: StatBar, def: StageDef): number {
   let min = Infinity;
   let max = -Infinity;
-  for (const id of CHARACTER_ORDER) {
-    const v = bar.read(CHARACTERS[id].stats);
+  for (const id of STAGE_ORDER) {
+    const v = bar.read(STAGES[id]);
     min = Math.min(min, v);
     max = Math.max(max, v);
   }
   const span = max - min;
-  const t = span > 0 ? (bar.read(def.stats) - min) / span : 0.5;
+  const t = span > 0 ? (bar.read(def) - min) / span : 0.5;
   return 0.18 + t * 0.82;
 }
 
@@ -57,31 +44,32 @@ function hex(color: number): string {
 }
 
 /**
- * Full-screen roster screen shown before the first match and reachable again
- * from the pause and result overlays.
+ * Full-screen stage picker, shown after the fighter is chosen and reachable
+ * again from the pause and result overlays.
  *
- * It only owns the DOM half of the screen: the rotating 3D portrait beside it
- * belongs to CharacterPreview, which is why every cursor move reports out
- * through `onHighlight` instead of drawing anything itself. The panel is docked
- * to one edge (left in landscape, bottom in portrait) so the other half of the
- * screen stays clear for that portrait.
+ * It deliberately borrows the fighter screen's markup and CSS classes rather
+ * than introducing a second look: the two screens sit back to back in the same
+ * flow, and a player who has just learned where the cards, the stat bars and
+ * the confirm button live should find them in the same places. As with that
+ * screen, the 3D half of the display belongs to someone else — StagePreview —
+ * which is why every cursor move reports out through `onHighlight`.
  */
-export class CharacterSelect {
+export class StageSelect {
   private el: HTMLElement;
-  private cards = new Map<CharacterId, HTMLElement>();
+  private cards = new Map<StageId, HTMLElement>();
   private detailName!: HTMLElement;
   private detailTitle!: HTMLElement;
   private detailDesc!: HTMLElement;
-  private detailSpecial!: HTMLElement;
+  private traitList!: HTMLElement;
   private statFills = new Map<string, HTMLElement>();
   private cancelBtn!: HTMLButtonElement;
 
-  private opts: CharacterSelectOptions;
-  private selected: CharacterId = CHARACTER_ORDER[0];
+  private opts: StageSelectOptions;
+  private selected: StageId = STAGE_ORDER[0];
   private open_ = false;
   private cancellable = false;
 
-  constructor(root: HTMLElement, opts: CharacterSelectOptions) {
+  constructor(root: HTMLElement, opts: StageSelectOptions) {
     this.opts = opts;
     this.el = document.createElement("div");
     this.el.className = "jb-select";
@@ -97,18 +85,18 @@ export class CharacterSelect {
 
     const title = document.createElement("div");
     title.className = "jb-cs-title";
-    title.textContent = "ファイター選択";
+    title.textContent = "ステージ選択";
     const subtitle = document.createElement("div");
     subtitle.className = "jb-cs-subtitle";
-    subtitle.textContent = "選ばなかった3人がCPUとして参戦します";
+    subtitle.textContent = "決定すると新しいステージで試合が始まります";
     panel.append(title, subtitle);
 
     const grid = document.createElement("div");
     grid.className = "jb-cs-grid";
     panel.appendChild(grid);
 
-    for (const id of CHARACTER_ORDER) {
-      const def = CHARACTERS[id];
+    for (const id of STAGE_ORDER) {
+      const def = STAGES[id];
       const card = document.createElement("button");
       card.className = "jb-cs-card";
       card.type = "button";
@@ -117,8 +105,8 @@ export class CharacterSelect {
 
       const chip = document.createElement("div");
       chip.className = "jb-cs-chip";
-      chip.style.background = `linear-gradient(150deg, ${hex(def.palette.primary)}, ${hex(
-        def.palette.secondary
+      chip.style.background = `linear-gradient(150deg, ${hex(def.lighting.sky)}, ${hex(
+        def.palette.primary
       )})`;
       chip.textContent = def.name.charAt(0);
 
@@ -134,9 +122,8 @@ export class CharacterSelect {
 
       card.append(chip, text);
       card.addEventListener("click", () => {
-        // First tap highlights, a tap on the already-selected card commits — the
-        // same double-tap-to-confirm pattern the pad buttons use, so touch
-        // players never need to reach for the confirm button.
+        // Same double-tap-to-confirm as the fighter cards: the first tap moves
+        // the cursor, a tap on the already-selected card commits.
         if (this.selected === id) this.confirm();
         else this.highlight(id);
       });
@@ -173,9 +160,9 @@ export class CharacterSelect {
     }
     detail.appendChild(stats);
 
-    this.detailSpecial = document.createElement("div");
-    this.detailSpecial.className = "jb-cs-special";
-    detail.appendChild(this.detailSpecial);
+    this.traitList = document.createElement("ul");
+    this.traitList.className = "jb-cs-traits";
+    detail.appendChild(this.traitList);
     panel.appendChild(detail);
 
     const actions = document.createElement("div");
@@ -183,7 +170,7 @@ export class CharacterSelect {
     const confirmBtn = document.createElement("button");
     confirmBtn.className = "jb-cs-confirm";
     confirmBtn.type = "button";
-    confirmBtn.textContent = "このファイターで戦う";
+    confirmBtn.textContent = "このステージで戦う";
     confirmBtn.addEventListener("click", () => this.confirm());
     this.cancelBtn = document.createElement("button");
     this.cancelBtn.className = "jb-cs-cancel";
@@ -200,10 +187,10 @@ export class CharacterSelect {
   }
 
   /**
-   * @param current      fighter the cursor starts on
-   * @param cancellable  false at boot, when there is no match to go back to
+   * @param current      stage the cursor starts on
+   * @param cancellable  false only when there is nothing to go back to
    */
-  open(current: CharacterId, cancellable: boolean): void {
+  open(current: StageId, cancellable: boolean): void {
     this.cancellable = cancellable;
     this.cancelBtn.style.display = cancellable ? "" : "none";
     this.open_ = true;
@@ -220,22 +207,26 @@ export class CharacterSelect {
     return this.open_;
   }
 
-  get selectedId(): CharacterId {
+  get selectedId(): StageId {
     return this.selected;
   }
 
-  private highlight(id: CharacterId): void {
+  private highlight(id: StageId): void {
     this.selected = id;
-    const def = CHARACTERS[id];
+    const def = STAGES[id];
 
     this.cards.forEach((card, cardId) => card.classList.toggle("jb-selected", cardId === id));
 
     this.detailName.textContent = def.name;
     this.detailTitle.textContent = def.title;
     this.detailDesc.textContent = def.description;
-    this.detailSpecial.textContent = `必殺技: ${def.specialName}（クールダウン ${CHARACTER_ATTACKS[
-      id
-    ].special.cooldown.toFixed(0)}秒）`;
+
+    this.traitList.innerHTML = "";
+    for (const trait of def.traits) {
+      const li = document.createElement("li");
+      li.textContent = trait;
+      this.traitList.appendChild(li);
+    }
 
     for (const bar of STAT_BARS) {
       const fill = this.statFills.get(bar.label);
@@ -258,22 +249,25 @@ export class CharacterSelect {
   }
 
   private onKeyDown(e: KeyboardEvent): void {
-    // See StageSelect.onKeyDown: the two screens share the window listener, so
-    // a key one of them has already acted on must not be acted on twice.
+    // Both select screens listen on `window`, and confirming on the fighter
+    // screen opens this one from inside that very event's handler — so without
+    // this the same Enter would sail through and confirm the stage too. Every
+    // key either screen acts on is marked handled, which makes defaultPrevented
+    // the reliable "somebody already used this" flag.
     if (!this.open_ || e.defaultPrevented) return;
-    const idx = CHARACTER_ORDER.indexOf(this.selected);
+    const idx = STAGE_ORDER.indexOf(this.selected);
     switch (e.code) {
       case "ArrowLeft":
       case "KeyA":
       case "ArrowUp":
       case "KeyW":
-        this.highlight(CHARACTER_ORDER[(idx - 1 + CHARACTER_ORDER.length) % CHARACTER_ORDER.length]);
+        this.highlight(STAGE_ORDER[(idx - 1 + STAGE_ORDER.length) % STAGE_ORDER.length]);
         break;
       case "ArrowRight":
       case "KeyD":
       case "ArrowDown":
       case "KeyS":
-        this.highlight(CHARACTER_ORDER[(idx + 1) % CHARACTER_ORDER.length]);
+        this.highlight(STAGE_ORDER[(idx + 1) % STAGE_ORDER.length]);
         break;
       case "Enter":
       case "Space":

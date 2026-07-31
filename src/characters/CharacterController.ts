@@ -48,6 +48,11 @@ export class CharacterController {
     private items: ItemManager
   ) {}
 
+  /** Points ground and edge queries at a newly built arena after a stage change. */
+  setStage(stage: Stage): void {
+    this.stage = stage;
+  }
+
   update(c: Character, intent: CharacterIntent, dt: number): void {
     if (!c.alive) return;
 
