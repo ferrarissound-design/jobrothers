@@ -130,6 +130,7 @@ export const GameConfig = {
 export const STORAGE_KEYS = {
   quality: "joebra_quality",
   volume: "joebra_volume",
+  musicVolume: "joebra_music_volume",
   difficulty: "joebra_difficulty",
   character: "joebra_character",
   items: "joebra_items",

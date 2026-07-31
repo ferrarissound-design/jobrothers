@@ -34,6 +34,16 @@ const GROUND_BRAKE_LAMBDA = 32;
 const AIR_TURN_LAMBDA = 9;
 const GUARD_PASSIVE_DRAIN = 6;
 
+/** Applies a fighter's specialPower stat to one use of its special attack. */
+function scaleSpecial(def: AttackDef, power: number): AttackDef {
+  if (power === 1) return def;
+  return {
+    ...def,
+    damage: def.damage * power,
+    knockbackBase: def.knockbackBase * power,
+  };
+}
+
 /**
  * Drives a Character's per-frame state machine: movement, jump, guard,
  * dodge and the light/heavy/special attack pipeline. Used identically for
@@ -72,9 +82,17 @@ export class CharacterController {
       this.updateGuard(c, intent);
     }
 
-    if (canAct && !c.isGuarding) {
+    const steering = canAct && !c.isGuarding;
+    if (steering) {
       this.updateMovement(c, intent, dt);
       this.tryAttacks(c, intent);
+    } else if (!c.isDodging && c.hitstunTimer <= 0) {
+      // Nothing is driving the horizontal velocity in these states (guard,
+      // attack, guard break) and the ground applies no friction of its own, so
+      // without this a fighter who guards mid-dash keeps sliding at dash speed
+      // — straight off the edge. Hitstun and dodges are excluded: their
+      // momentum is the point, and the dodge damps itself.
+      this.applyGroundFriction(c, dt);
     }
 
     this.applyPhysics(c, dt);
@@ -190,6 +208,13 @@ export class CharacterController {
     c.state = c.grounded ? (mag > 0.1 ? "move" : "idle") : "fall";
   }
 
+  /** Brakes a grounded fighter who is not steering. Airborne momentum is left alone. */
+  private applyGroundFriction(c: Character, dt: number): void {
+    if (!c.grounded) return;
+    c.velocity.x = damp(c.velocity.x, 0, GROUND_BRAKE_LAMBDA, dt);
+    c.velocity.z = damp(c.velocity.z, 0, GROUND_BRAKE_LAMBDA, dt);
+  }
+
   private tryJump(c: Character): void {
     if (c.grounded) {
       c.velocity.y = GameConfig.jump.groundJumpVelocity * c.stats.jumpPower;
@@ -284,10 +309,11 @@ export class CharacterController {
     c.attackCooldowns[kind] = def.cooldown;
 
     if (kind === "special") {
+      const power = c.stats.specialPower;
       const behavior = SPECIAL_BEHAVIOR[c.def.id];
       if (behavior === "buff") {
         c.hyperMode = true;
-        c.hyperModeTimer = HYPER_MODE_DURATION;
+        c.hyperModeTimer = HYPER_MODE_DURATION * power;
         this.audio.play(def.sound);
         this.effects.spawnElectric(c.position.clone().setY(c.position.y + c.height * 0.6), 16);
         c.state = "attack";
@@ -297,7 +323,7 @@ export class CharacterController {
         return;
       }
       if (behavior === "mine") {
-        this.combat.placeMine(c);
+        this.combat.placeMine(c, power);
         this.audio.play(def.sound);
         c.state = "attack";
         c.currentAttack = null;
@@ -305,6 +331,11 @@ export class CharacterController {
         c.attackTimer = def.startup + def.recovery;
         return;
       }
+      // The roster screen advertises 必殺技 (specialPower) as a per-fighter
+      // stat, so it has to reach the special that actually resolves. The table
+      // entry is shared and must stay untouched, hence the scaled copy.
+      this.beginAttack(c, scaleSpecial(def, power));
+      return;
     }
 
     this.beginAttack(c, def);

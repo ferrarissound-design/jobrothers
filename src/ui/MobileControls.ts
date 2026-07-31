@@ -36,6 +36,7 @@ export class MobileControls {
   private lookZone!: HTMLElement;
   private lookTouchId: number | null = null;
   private lookLast = { x: 0, y: 0 };
+  private actionButtons: { el: HTMLElement; spec: ButtonSpec }[] = [];
 
   constructor(container: HTMLElement, input: InputManager) {
     this.input = input;
@@ -71,6 +72,13 @@ export class MobileControls {
       this.input.setMoveAxis(0, 0);
       this.input.setDashHeld(false);
       this.lookTouchId = null;
+      // Held buttons (guard, jump) have to be let go of too: their touchend can
+      // land while the pad is disabled, leaving the input stuck down for the
+      // rest of the match.
+      for (const button of this.actionButtons) {
+        button.el.classList.remove("jb-pressed");
+        button.spec.onUp?.();
+      }
     }
   }
 
@@ -276,6 +284,7 @@ export class MobileControls {
       btn.addEventListener("touchcancel", release, { passive: false });
       btn.addEventListener("contextmenu", (e) => e.preventDefault());
       zone.appendChild(btn);
+      this.actionButtons.push({ el: btn, spec });
     }
   }
 }

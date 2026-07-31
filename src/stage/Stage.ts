@@ -235,9 +235,24 @@ export class Stage {
   }
 
   removeDestroyed(): void {
+    let removed = false;
     for (let i = this.destructibles.length - 1; i >= 0; i--) {
-      if (this.destructibles[i].destroyed) this.destructibles.splice(i, 1);
+      if (this.destructibles[i].destroyed) {
+        this.destructibles.splice(i, 1);
+        removed = true;
+      }
     }
+    // The steering colliders have to go with them, or the CPU keeps swerving
+    // around props that were blown up minutes ago.
+    if (removed) this.rebuildStaticColliders();
+  }
+
+  private rebuildStaticColliders(): void {
+    this.staticColliders = this.destructibles.map((d) => ({
+      x: d.position.x,
+      z: d.position.z,
+      radius: d.radius,
+    }));
   }
 
   /** Removes any surviving destructibles and rebuilds the original layout, used on match restart. */
