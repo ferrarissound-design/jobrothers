@@ -76,6 +76,7 @@ export class UIManager {
   private debugEl!: HTMLElement;
   private opts: UIManagerOptions;
   private paused = false;
+  private resultShown = false;
 
   constructor(root: HTMLElement, opts: UIManagerOptions) {
     this.root = root;
@@ -296,6 +297,9 @@ export class UIManager {
   }
 
   togglePause(): void {
+    // The match is over: pausing here would only stack the pause overlay on top
+    // of the result screen and hide its buttons.
+    if (this.resultShown) return;
     this.paused = !this.paused;
     this.pauseOverlayEl.classList.toggle("jb-show", this.paused);
     this.opts.onPauseToggle(this.paused);
@@ -392,12 +396,14 @@ export class UIManager {
   }
 
   showResult(win: boolean): void {
+    this.resultShown = true;
     this.resultEl.classList.add("jb-show");
     this.resultTitleEl.textContent = win ? "YOU WIN" : "YOU LOSE";
     this.resultTitleEl.classList.toggle("jb-lose", !win);
   }
 
   hideResult(): void {
+    this.resultShown = false;
     this.resultEl.classList.remove("jb-show");
   }
 

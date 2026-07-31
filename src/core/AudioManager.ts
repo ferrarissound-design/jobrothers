@@ -1,4 +1,17 @@
+import { STORAGE_KEYS } from "../config/gameConfig";
 import { readSetting, writeSetting } from "../utils/storage";
+
+/**
+ * Reads a stored 0..1 volume. Anything that is not a finite number — a key
+ * another build wrote, a value edited by hand — falls back to the default:
+ * assigning NaN to a GainNode throws and would take every sound with it.
+ */
+function readVolume(key: string, fallback: number): number {
+  const stored = readSetting(key);
+  if (stored === null) return fallback;
+  const value = parseFloat(stored);
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : fallback;
+}
 
 export type SfxName =
   | "lightAttack"
@@ -32,10 +45,8 @@ export class AudioManager {
   private noiseBuffer: AudioBuffer | null = null;
 
   constructor() {
-    const stored = readSetting("joebra_volume");
-    if (stored !== null) this.volume = parseFloat(stored);
-    const storedMusic = readSetting("joebra_music_volume");
-    if (storedMusic !== null) this.musicVolume = parseFloat(storedMusic);
+    this.volume = readVolume(STORAGE_KEYS.volume, this.volume);
+    this.musicVolume = readVolume(STORAGE_KEYS.musicVolume, this.musicVolume);
 
     document.addEventListener("visibilitychange", () => {
       if (!this.ctx) return;
@@ -69,7 +80,7 @@ export class AudioManager {
   setVolume(v: number): void {
     this.volume = Math.max(0, Math.min(1, v));
     if (this.masterGain) this.masterGain.gain.value = this.volume;
-    writeSetting("joebra_volume", String(this.volume));
+    writeSetting(STORAGE_KEYS.volume, String(this.volume));
   }
 
   getVolume(): number {
@@ -110,7 +121,7 @@ export class AudioManager {
       const target = this.musicDucked ? this.musicVolume * 0.35 : this.musicVolume;
       this.musicGain.gain.setTargetAtTime(target, this.ctx.currentTime, 0.05);
     }
-    writeSetting("joebra_music_volume", String(this.musicVolume));
+    writeSetting(STORAGE_KEYS.musicVolume, String(this.musicVolume));
   }
 
   getMusicVolume(): number {

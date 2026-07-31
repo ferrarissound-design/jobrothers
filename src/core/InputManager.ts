@@ -34,6 +34,10 @@ export class InputManager {
     this.canvas = canvas;
     this.bindKeyboard();
     this.bindMouse();
+    // Keyup never arrives for a key that was down when the window lost focus
+    // (alt-tab, a switch to another app), which used to leave the fighter
+    // running or guarding until that key was pressed and released again.
+    window.addEventListener("blur", () => this.clearTransient());
   }
 
   private bindKeyboard(): void {

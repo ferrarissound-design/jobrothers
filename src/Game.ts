@@ -212,7 +212,8 @@ export class Game {
     this.scene.add(rim);
     const sun = new THREE.DirectionalLight(0xfff2d8, 3.1);
     sun.position.set(15, 24, 10);
-    sun.shadow.mapSize.set(1024, 1024);
+    // Resolution comes from the quality preset (applyRendererQuality), which
+    // runs right after this and on every later quality change.
     sun.shadow.camera.left = -30;
     sun.shadow.camera.right = 30;
     sun.shadow.camera.top = 30;
@@ -501,6 +502,7 @@ export class Game {
         const eliminated = c.loseStock();
         if (eliminated) {
           c.alive = false;
+          c.state = "dead";
           c.group.visible = false;
         } else {
           const spawnIdx = Math.floor(Math.random() * this.stage.spawnPoints.length);
@@ -512,6 +514,14 @@ export class Game {
   }
 
   private checkWinCondition(): void {
+    // Losing the player's last stock ends the match immediately. Without this
+    // the CPUs would keep fighting over a chase camera locked to a corpse under
+    // the stage, with nothing the player can do until they finish.
+    if (!this.player.alive) {
+      this.endMatch(false);
+      return;
+    }
+
     const aliveCount = this.fighters.filter((f) => f.character.alive).length;
     const timeUp = GameConfig.matchTimeLimit > 0 && this.matchTime >= GameConfig.matchTimeLimit;
     if (aliveCount > 1 && !timeUp) return;
@@ -579,7 +589,9 @@ export class Game {
   private updateCameraFollow(dt: number): void {
     let nearestDist = Infinity;
     for (const f of this.fighters) {
-      if (f.character === this.player) continue;
+      // Eliminated fighters keep their last position (below the stage), so
+      // counting them would keep the camera pulled back for the rest of the match.
+      if (f.character === this.player || !f.character.alive) continue;
       nearestDist = Math.min(nearestDist, horizontalDistance(this.player.position, f.character.position));
     }
     const distFromCenter = Math.hypot(this.player.position.x, this.player.position.z);
@@ -700,6 +712,13 @@ export class Game {
     this.renderer.shadowMap.enabled = q.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.sunLight.castShadow = q.shadows;
+    // A shadow map that already exists keeps its old resolution, so the render
+    // target has to be dropped for the new size to take effect.
+    if (this.sunLight.shadow.mapSize.width !== q.shadowMapSize) {
+      this.sunLight.shadow.mapSize.set(q.shadowMapSize, q.shadowMapSize);
+      this.sunLight.shadow.map?.dispose();
+      this.sunLight.shadow.map = null;
+    }
     this.scene.fog = new THREE.Fog(GameConfig.skyColor, 40, q.drawDistance);
     this.cameraController.camera.far = q.drawDistance + 30;
     this.cameraController.camera.updateProjectionMatrix();

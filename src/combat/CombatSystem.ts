@@ -20,6 +20,9 @@ import {
 /** Ink line for a mine, in world units — it sits underfoot, so it stays fine. */
 const MINE_INK = 0.012;
 
+/** Height band (meters, either side) a fighter has to be inside to set a mine off. */
+const MINE_TRIGGER_VERTICAL = 2.0;
+
 export interface DestructibleLike {
   id: string;
   position: THREE.Vector3;
@@ -41,6 +44,8 @@ interface Mine {
   armTimer: number;
   life: number;
   mesh: THREE.Group;
+  /** Owner's specialPower stat, applied to the blast. */
+  power: number;
 }
 
 export class CombatSystem {
@@ -256,7 +261,7 @@ export class CombatSystem {
     this.callbacks.onCameraShake(0.7);
   }
 
-  placeMine(owner: Character): void {
+  placeMine(owner: Character, power = 1): void {
     const ownerMines = this.mines.filter((m) => m.ownerId === owner.instanceId);
     if (ownerMines.length >= MINE_MAX_ACTIVE) {
       const oldest = ownerMines[0];
@@ -290,6 +295,7 @@ export class CombatSystem {
       armTimer: MINE_ARM_DELAY,
       life: MINE_LIFETIME,
       mesh,
+      power,
     });
   }
 
@@ -324,13 +330,21 @@ export class CombatSystem {
       let triggered = false;
       for (const c of characters) {
         if (!c.alive) continue;
-        if (horizontalDistance(mine.position, c.position) <= MINE_TRIGGER_RADIUS) {
-          triggered = true;
-          break;
-        }
+        if (horizontalDistance(mine.position, c.position) > MINE_TRIGGER_RADIUS) continue;
+        // Height matters as much as footprint: a mine on a platform used to go
+        // off under the feet of someone walking past on the ground below it.
+        if (Math.abs(c.position.y - mine.position.y) > MINE_TRIGGER_VERTICAL) continue;
+        triggered = true;
+        break;
       }
       if (triggered) {
-        this.applyExplosionDamage(mine.position, MINE_TRIGGER_RADIUS * 1.6, 17, 13, characters);
+        this.applyExplosionDamage(
+          mine.position,
+          MINE_TRIGGER_RADIUS * 1.6,
+          17 * mine.power,
+          13 * mine.power,
+          characters
+        );
         this.removeMine(mine);
       }
     }
