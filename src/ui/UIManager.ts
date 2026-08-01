@@ -21,6 +21,13 @@ export interface HeldItemUIState {
   timeFrac: number;
 }
 
+/** One row of the post-match standings, already ordered best-to-worst by the caller. */
+export interface ResultRankingEntry {
+  name: string;
+  isPlayer: boolean;
+  stocks: number;
+}
+
 export interface HUDState {
   fighters: FighterUIState[];
   matchTime: number;
@@ -72,6 +79,7 @@ export class UIManager {
   private hudEl!: HTMLElement;
   private resultEl!: HTMLElement;
   private resultTitleEl!: HTMLElement;
+  private resultRankingEl!: HTMLElement;
   private pauseOverlayEl!: HTMLElement;
   private debugEl!: HTMLElement;
   private opts: UIManagerOptions;
@@ -161,6 +169,8 @@ export class UIManager {
     this.resultEl.className = "jb-result";
     this.resultTitleEl = document.createElement("div");
     this.resultTitleEl.className = "jb-result-title";
+    this.resultRankingEl = document.createElement("div");
+    this.resultRankingEl.className = "jb-result-ranking";
     const resultBtns = document.createElement("div");
     resultBtns.className = "jb-result-btns";
     const restartBtn = document.createElement("button");
@@ -172,7 +182,7 @@ export class UIManager {
     selectBtn.textContent = "キャラクター選択";
     selectBtn.addEventListener("click", () => this.opts.onCharacterSelect());
     resultBtns.append(restartBtn, selectBtn);
-    this.resultEl.append(this.resultTitleEl, resultBtns);
+    this.resultEl.append(this.resultTitleEl, this.resultRankingEl, resultBtns);
     hud.appendChild(this.resultEl);
 
     // pause overlay
@@ -395,11 +405,28 @@ export class UIManager {
     this.itemTimerFillEl.style.background = color;
   }
 
-  showResult(win: boolean): void {
+  showResult(win: boolean, ranking: ResultRankingEntry[]): void {
     this.resultShown = true;
     this.resultEl.classList.add("jb-show");
     this.resultTitleEl.textContent = win ? "YOU WIN" : "YOU LOSE";
     this.resultTitleEl.classList.toggle("jb-lose", !win);
+
+    this.resultRankingEl.innerHTML = "";
+    ranking.forEach((entry, i) => {
+      const row = document.createElement("div");
+      row.className = "jb-result-rank-row" + (entry.isPlayer ? " jb-player" : "");
+      const rank = document.createElement("span");
+      rank.className = "jb-result-rank-num";
+      rank.textContent = `${i + 1}`;
+      const name = document.createElement("span");
+      name.className = "jb-result-rank-name";
+      name.textContent = entry.name + (entry.isPlayer ? " (YOU)" : "");
+      const stocks = document.createElement("span");
+      stocks.className = "jb-result-rank-stocks";
+      stocks.textContent = `残機 ${entry.stocks}`;
+      row.append(rank, name, stocks);
+      this.resultRankingEl.appendChild(row);
+    });
   }
 
   hideResult(): void {

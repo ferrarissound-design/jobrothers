@@ -61,7 +61,6 @@ export class Character {
 
   hitstunTimer = 0;
   invulnTimer = 0; // respawn / dodge invulnerability
-  respawning = false;
 
   isGuarding = false;
   guardDurability = GameConfig.guard.maxDurability;
@@ -72,7 +71,6 @@ export class Character {
   dodgeTimer = 0;
   dodgeCooldownTimer = 0;
   dodgeInvuln = false;
-  dodgeDir = new THREE.Vector3();
 
   airJumpsUsed = 0;
   airDodgeUsed = false;
@@ -85,11 +83,9 @@ export class Character {
   attackTimer = 0;
   attackCooldowns: { light: number; heavy: number; special: number } = { light: 0, heavy: 0, special: 0 };
   hitTargetsThisAttack = new Set<string>();
-  attackAnimT = 0;
 
   hyperMode = false; // hayasugi special
   hyperModeTimer = 0;
-  paralyzedTimer = 0;
 
   heldItem: HeldItem | null = null;
   /** Remaining seconds of the star item's invulnerability (drives the aura + speed boost). */
@@ -131,7 +127,6 @@ export class Character {
     this.grounded = false;
     this.state = "fall";
     this.invulnTimer = GameConfig.respawnInvulnDuration;
-    this.respawning = false;
     this.airJumpsUsed = 0;
     this.airDodgeUsed = false;
     this.hitstunTimer = 0;
@@ -152,7 +147,6 @@ export class Character {
     this.hitTargetsThisAttack.clear();
     this.hyperMode = false;
     this.hyperModeTimer = 0;
-    this.paralyzedTimer = 0;
     this.starTimer = 0;
     // heldItem is deliberately absent from this reset: only ItemManager can
     // dispose the item's mesh, so it is the one that takes the item away.

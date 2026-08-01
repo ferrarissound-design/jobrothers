@@ -247,7 +247,6 @@ export class CharacterController {
     c.dodgeInvuln = true;
     c.dodgeCooldownTimer = c.grounded ? GameConfig.dodge.cooldown : GameConfig.dodge.airCooldown;
     if (!c.grounded) c.airDodgeUsed = true;
-    c.dodgeDir.copy(moveVec);
     c.velocity.x = moveVec.x * GameConfig.dodge.speed;
     c.velocity.z = moveVec.z * GameConfig.dodge.speed;
     if (!c.grounded) c.velocity.y = Math.max(c.velocity.y, 3);

@@ -19,8 +19,6 @@ export const SPECIAL_BEHAVIOR: Record<CharacterId, SpecialBehavior> = {
 export const HYPER_MODE_DURATION = 4.5;
 export const HYPER_MODE_SPEED_MULT = 1.55;
 export const HYPER_MODE_ATTACK_MULT = 1.3;
-/** 0 = full control, higher = more overshoot/drift while turning (harder to control). */
-export const HYPER_MODE_CONTROL_PENALTY = 0.5;
 
 // --- Danboru: mine trap ---
 export const MINE_MAX_ACTIVE = 3;

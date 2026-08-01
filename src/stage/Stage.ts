@@ -281,4 +281,19 @@ export class Stage {
   isOverVoid(x: number, z: number): boolean {
     return this.getGroundHeightAt(x, z, -999) === null;
   }
+
+  /**
+   * True when a point (with the given radius) sits inside the solid body of a
+   * platform box below its top surface — i.e. it is hitting the box from the
+   * side or underneath rather than landing on it.
+   */
+  hitsPlatformSide(position: THREE.Vector3, radius: number): boolean {
+    for (const p of this.platforms) {
+      if (position.y > p.topY || position.y < 0) continue;
+      if (position.x + radius <= p.minX || position.x - radius >= p.maxX) continue;
+      if (position.z + radius <= p.minZ || position.z - radius >= p.maxZ) continue;
+      return true;
+    }
+    return false;
+  }
 }

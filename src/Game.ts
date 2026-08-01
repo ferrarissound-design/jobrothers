@@ -6,7 +6,7 @@ import { EffectManager } from "./core/EffectManager";
 import { CombatSystem } from "./combat/CombatSystem";
 import { Stage } from "./stage/Stage";
 import { CameraController } from "./camera/CameraController";
-import { UIManager, type FighterUIState } from "./ui/UIManager";
+import { UIManager, type FighterUIState, type ResultRankingEntry } from "./ui/UIManager";
 import { MobileControls, isMobileDevice } from "./ui/MobileControls";
 import { CharacterSelect } from "./ui/CharacterSelect";
 import { CharacterPreview } from "./render/CharacterPreview";
@@ -73,6 +73,7 @@ export class Game {
   /** Phase to restore when the character select screen is backed out of. */
   private phaseBeforeSelect: MatchPhase = "playing";
   private lastResultWin = false;
+  private lastRanking: ResultRankingEntry[] = [];
   private matchTime = 0;
   private debugEnabled = false;
   private lastFrameTime = performance.now();
@@ -272,6 +273,7 @@ export class Game {
     if (this.phase === "select") return;
     this.phaseBeforeSelect = this.phase;
     this.phase = "select";
+    this.input.releasePointerLock();
 
     this.ui.setPaused(false);
     this.ui.hideResult();
@@ -292,7 +294,7 @@ export class Game {
     this.teardownSelect();
     this.phase = this.phaseBeforeSelect;
     if (this.phase === "result") {
-      this.ui.showResult(this.lastResultWin);
+      this.ui.showResult(this.lastResultWin, this.lastRanking);
       this.audio.setMusicDucked(true);
     } else if (this.phase === "paused") {
       this.ui.setPaused(true);
@@ -505,12 +507,33 @@ export class Game {
           c.state = "dead";
           c.group.visible = false;
         } else {
-          const spawnIdx = Math.floor(Math.random() * this.stage.spawnPoints.length);
-          c.resetForRespawn(this.stage.spawnPoints[spawnIdx]);
+          c.resetForRespawn(this.pickRespawnPoint(c));
           c.group.visible = true;
         }
       }
     }
+  }
+
+  /**
+   * Picks whichever spawn point sits farthest from the rest of the field, so a
+   * respawn never drops a fighter into the middle of a fight that is already
+   * happening at one of the other points.
+   */
+  private pickRespawnPoint(respawning: Character): THREE.Vector3 {
+    const others = this.fighters.map((f) => f.character).filter((c) => c.alive && c !== respawning);
+    let best = this.stage.spawnPoints[0];
+    let bestDist = -Infinity;
+    for (const point of this.stage.spawnPoints) {
+      let nearest = Infinity;
+      for (const c of others) {
+        nearest = Math.min(nearest, horizontalDistance(point, c.position));
+      }
+      if (nearest > bestDist) {
+        bestDist = nearest;
+        best = point;
+      }
+    }
+    return best;
   }
 
   private checkWinCondition(): void {
@@ -539,12 +562,28 @@ export class Game {
   private endMatch(playerWon: boolean): void {
     this.phase = "result";
     this.lastResultWin = playerWon;
+    this.lastRanking = this.buildRanking();
+    this.input.releasePointerLock();
     this.mobileControls?.setEnabled(false);
     this.audio.setMusicDucked(true);
     this.audio.play(playerWon ? "win" : "lose");
-    this.ui.showResult(playerWon);
+    this.ui.showResult(playerWon, this.lastRanking);
     this.loop.setTimeScale(0.25);
     window.setTimeout(() => this.loop.setTimeScale(1), 900);
+  }
+
+  /**
+   * Final standings, best fighter first: more stocks wins, and a stock tie
+   * (e.g. every survivor when the clock runs out) breaks on whoever is
+   * carrying less damage. Without this a time-up always looked identical to a
+   * clean KO — a single WIN/LOSE line with no sense of how the other two CPUs
+   * actually finished.
+   */
+  private buildRanking(): ResultRankingEntry[] {
+    return this.fighters
+      .map((f) => f.character)
+      .sort((a, b) => (b.stocks !== a.stocks ? b.stocks - a.stocks : a.damagePercent - b.damagePercent))
+      .map((c) => ({ name: c.displayName, isPlayer: c.isPlayer, stocks: Math.max(0, c.stocks) }));
   }
 
   // --- per-frame presentation -------------------------------------------
@@ -681,6 +720,7 @@ export class Game {
 
   private setPaused(paused: boolean): void {
     this.phase = this.phase === "result" ? "result" : paused ? "paused" : "playing";
+    if (paused) this.input.releasePointerLock();
     this.mobileControls?.setEnabled(this.phase === "playing");
     this.audio.setMusicDucked(this.phase !== "playing");
   }

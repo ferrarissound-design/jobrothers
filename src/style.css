@@ -340,6 +340,45 @@ html, body {
   text-shadow: 0 0 20px rgba(50,50,60,.8), 0 4px 8px rgba(0,0,0,.8);
 }
 
+.jb-result-ranking {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 20px;
+  min-width: 240px;
+}
+
+.jb-result-rank-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.08);
+  color: #e8eef2;
+  font-size: 15px;
+}
+.jb-result-rank-row.jb-player {
+  background: rgba(255,180,0,.22);
+  font-weight: 700;
+}
+
+.jb-result-rank-num {
+  width: 1.4em;
+  text-align: center;
+  color: #ffd54f;
+  font-weight: 800;
+}
+
+.jb-result-rank-name {
+  flex: 1;
+}
+
+.jb-result-rank-stocks {
+  opacity: .8;
+  font-variant-numeric: tabular-nums;
+}
+
 .jb-result-btns {
   display: flex;
   gap: 12px;
