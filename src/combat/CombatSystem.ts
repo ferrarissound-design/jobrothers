@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { Character } from "../characters/Character";
 import type { AttackDef } from "../characters/attacks";
-import { forwardFromYaw, isInFrontCone, horizontalDistance } from "./Hitbox";
+import { forwardFromYaw, isInFrontCone, isInVerticalBand, horizontalDistance } from "./Hitbox";
 import { computeKnockback } from "./KnockbackSystem";
 import { GameConfig } from "../config/gameConfig";
 import { clamp } from "../utils/math";
@@ -77,6 +77,7 @@ export class CombatSystem {
       for (const defender of characters) {
         if (defender === attacker || !defender.alive) continue;
         if (attacker.hitTargetsThisAttack.has(defender.instanceId)) continue;
+        if (!isInVerticalBand(attacker.position.y, defender.position.y, attack.verticalBand)) continue;
         if (
           !isInFrontCone(
             attacker.position,
@@ -96,6 +97,7 @@ export class CombatSystem {
       for (const obstacle of obstacles) {
         if (obstacle.destroyed) continue;
         if (attacker.hitTargetsThisAttack.has(obstacle.id)) continue;
+        if (!isInVerticalBand(attacker.position.y, obstacle.position.y, attack.verticalBand)) continue;
         if (
           !isInFrontCone(
             attacker.position,

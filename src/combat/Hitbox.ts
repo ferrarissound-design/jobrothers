@@ -28,6 +28,26 @@ export function isInFrontCone(
   return angle <= halfAngle;
 }
 
+/** Height window a hit is allowed to land in, measured from the attacker's feet. */
+export interface VerticalBand {
+  min: number;
+  max: number;
+}
+
+/**
+ * Tests the height difference between attacker and target.
+ *
+ * Every cone test is purely horizontal — `isInFrontCone` flattens Y away — which
+ * is what lets the ground game read as a 2D fighter inside a 3D arena. A spike
+ * needs the opposite: it only means anything if it can be aimed at someone
+ * *below* you. Attacks without a band keep the flattened behavior.
+ */
+export function isInVerticalBand(originY: number, targetY: number, band?: VerticalBand): boolean {
+  if (!band) return true;
+  const dy = targetY - originY;
+  return dy >= band.min && dy <= band.max;
+}
+
 export function horizontalDistance(a: THREE.Vector3, b: THREE.Vector3): number {
   const dx = a.x - b.x;
   const dz = a.z - b.z;

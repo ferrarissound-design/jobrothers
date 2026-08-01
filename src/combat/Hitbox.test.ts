@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { describe, it, expect } from "vitest";
-import { forwardFromYaw, isInFrontCone, horizontalDistance } from "./Hitbox";
+import { forwardFromYaw, isInFrontCone, isInVerticalBand, horizontalDistance } from "./Hitbox";
 
 describe("forwardFromYaw", () => {
   it("faces +Z at yaw 0", () => {
@@ -20,6 +20,31 @@ describe("horizontalDistance", () => {
     const a = new THREE.Vector3(0, 0, 0);
     const b = new THREE.Vector3(3, 99, 4);
     expect(horizontalDistance(a, b)).toBeCloseTo(5);
+  });
+});
+
+describe("isInVerticalBand", () => {
+  const spikeBand = { min: -3.2, max: 0.6 };
+
+  it("imposes no constraint when the attack has no band", () => {
+    expect(isInVerticalBand(0, 50, undefined)).toBe(true);
+    expect(isInVerticalBand(0, -50, undefined)).toBe(true);
+  });
+
+  it("hits a target below the attacker", () => {
+    expect(isInVerticalBand(4, 2, spikeBand)).toBe(true);
+  });
+
+  it("hits a target level with the attacker", () => {
+    expect(isInVerticalBand(4, 4, spikeBand)).toBe(true);
+  });
+
+  it("misses a target well above the attacker", () => {
+    expect(isInVerticalBand(4, 6, spikeBand)).toBe(false);
+  });
+
+  it("misses a target further below than the band reaches", () => {
+    expect(isInVerticalBand(10, 2, spikeBand)).toBe(false);
   });
 });
 

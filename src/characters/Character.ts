@@ -15,6 +15,7 @@ export type CharacterState =
   | "guard"
   | "guardBreak"
   | "dodge"
+  | "ledgeHang"
   | "dead";
 
 export type AttackPhase = "startup" | "active" | "recovery" | null;
@@ -75,6 +76,13 @@ export class Character {
   airJumpsUsed = 0;
   airDodgeUsed = false;
 
+  /** Seconds left before an unattended ledge hang lets go on its own. */
+  ledgeHangTimer = 0;
+  /** Blocks re-catching the rim right after letting go of it. */
+  ledgeGrabCooldown = 0;
+  /** Outward horizontal normal of the rim being held, used to place the hang pose. */
+  ledgeNormal = new THREE.Vector3();
+
   isDashing = false;
   dashStamina = GameConfig.dash.staminaMax;
 
@@ -129,6 +137,8 @@ export class Character {
     this.invulnTimer = GameConfig.respawnInvulnDuration;
     this.airJumpsUsed = 0;
     this.airDodgeUsed = false;
+    this.ledgeHangTimer = 0;
+    this.ledgeGrabCooldown = 0;
     this.hitstunTimer = 0;
     this.hitFlashTimer = 0;
     this.isGuarding = false;
