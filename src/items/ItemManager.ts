@@ -425,11 +425,15 @@ export class ItemManager {
 
       const groundY = this.stage.getGroundHeightAt(p.position.x, p.position.z, p.position.y);
       const hitGround = groundY !== null && p.position.y <= groundY + p.def.radius;
+      // getGroundHeightAt only reports a platform once the projectile is at (or
+      // above) its top surface, so a shot flying below that — through the solid
+      // side of the box — would otherwise sail straight through it.
+      const hitPlatformSide = !hitGround && this.stage.hitsPlatformSide(p.position, p.def.radius);
       const expired = p.life <= 0 || p.position.y < GameConfig.fallDeathY;
 
-      if (!hit && !hitObstacle && !hitGround && !expired) continue;
+      if (!hit && !hitObstacle && !hitGround && !hitPlatformSide && !expired) continue;
 
-      this.detonate(p, hit, hitObstacle, characters, hitGround || expired);
+      this.detonate(p, hit, hitObstacle, characters, hitGround || hitPlatformSide || expired);
       disposeObject3D(p.mesh);
       this.projectiles.splice(i, 1);
     }

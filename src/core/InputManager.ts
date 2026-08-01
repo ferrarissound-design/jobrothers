@@ -176,4 +176,16 @@ export class InputManager {
   get isPointerLocked(): boolean {
     return this.pointerLocked;
   }
+
+  /**
+   * Releases mouse-look pointer lock, if held. A left-click during the match
+   * engages it (see bindMouse), and nothing ever released it again: the OS
+   * cursor stayed hidden and every click's coordinates stayed frozen at the
+   * point where the lock was taken, so a pause/result/select overlay opened
+   * afterwards could not reliably be clicked. Called whenever such an overlay
+   * takes over the screen.
+   */
+  releasePointerLock(): void {
+    if (this.pointerLocked) document.exitPointerLock?.();
+  }
 }

@@ -32,7 +32,6 @@ export interface CharacterDef {
   stats: CharacterStats;
   palette: CharacterPalette;
   specialName: string;
-  specialCooldown: number;
 }
 
 export const CHARACTERS: Record<CharacterId, CharacterDef> = {
@@ -54,7 +53,6 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     },
     palette: { primary: 0xd6362f, secondary: 0x2b4fa8, accent: 0xffce4a, skin: 0xf1b48a },
     specialName: "マンホールギザー",
-    specialCooldown: 8,
   },
   birinezu: {
     id: "birinezu",
@@ -74,7 +72,6 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     },
     palette: { primary: 0xf4d21c, secondary: 0x1a1a1a, accent: 0x35e6ff, skin: 0xf4d21c },
     specialName: "ジグザグスパーク",
-    specialCooldown: 7,
   },
   hayasugi: {
     id: "hayasugi",
@@ -94,7 +91,6 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     },
     palette: { primary: 0x2a6fe0, secondary: 0xe8f4ff, accent: 0x122845, skin: 0xe9c19a },
     specialName: "ハイパーダッシュモード",
-    specialCooldown: 11,
   },
   danboru: {
     id: "danboru",
@@ -114,7 +110,6 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     },
     palette: { primary: 0xc79a5a, secondary: 0x8a6a3d, accent: 0x4a4a4a, skin: 0x3a3a3a },
     specialName: "地雷トラップ",
-    specialCooldown: 6,
   },
 };
 

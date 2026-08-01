@@ -44,8 +44,6 @@ export const AI_PERSONALITIES: Record<AIPersonality, AIPersonalityConfig> = {
   },
 };
 
-export const CPU_PERSONALITY_ORDER: AIPersonality[] = ["aggressive", "cautious", "ranged"];
-
 /**
  * Which personality a fighter plays with when the CPU takes it over. Tied to
  * the character rather than to the roster slot, so whoever the player leaves

@@ -37,6 +37,7 @@ export class DestructibleObject implements DestructibleLike {
   private debrisColor: number;
   private onExplode?: (position: THREE.Vector3) => void;
   private explosionArmed = false;
+  private flashTimeoutIds: ReturnType<typeof setTimeout>[] = [];
 
   constructor(scene: THREE.Scene, effects: EffectManager, opts: DestructibleOptions) {
     this.id = `dstr_${idCounter++}`;
@@ -80,13 +81,18 @@ export class DestructibleObject implements DestructibleLike {
       const mat = mesh.material as THREE.MeshToonMaterial;
       if (mat?.emissive) {
         mat.emissive.setHex(0x442200);
-        setTimeout(() => mat.emissive?.setHex(0x000000), 90);
+        // Tracked so destroy() can cancel it: a hit landing just before the prop
+        // breaks would otherwise still fire this after the material — and the
+        // group it belongs to — has already been torn down.
+        this.flashTimeoutIds.push(setTimeout(() => mat.emissive?.setHex(0x000000), 90));
       }
     });
   }
 
   private destroy(exploded: boolean): void {
     this.destroyed = true;
+    for (const id of this.flashTimeoutIds) clearTimeout(id);
+    this.flashTimeoutIds.length = 0;
     const worldPos = this.position.clone();
     worldPos.y += 0.3;
     this.effects.spawnFragments(worldPos, this.debrisColor, exploded ? 16 : 10);
