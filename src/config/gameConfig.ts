@@ -80,6 +80,30 @@ export const GameConfig = {
     maxAirJumps: 1,
   },
 
+  /**
+   * Catching the stage rim on the way down. Without it a fighter knocked past
+   * the edge either has enough air jump left to get home or is simply dead,
+   * which leaves no recovery game at all — and nothing for a spike to threaten.
+   */
+  ledge: {
+    /** How far outside the rim a falling fighter can still reach it. */
+    grabReach: 1.3,
+    /** How far below the rim the grab window extends. */
+    grabDepth: 1.8,
+    /** Where the fighter hangs, below the rim. */
+    hangDrop: 0.95,
+    /** How far outside the rim the hanging body sits. */
+    hangOffset: 0.35,
+    /** Brief invulnerability on catching, so an edgeguard cannot be a free hit. */
+    invuln: 0.6,
+    /** Seconds before the fighter lets go on their own — no ledge camping. */
+    maxHangTime: 4,
+    /** Cooldown before the same fighter may catch the rim again. */
+    regrabCooldown: 0.7,
+    /** How far in from the rim a climb-up places them. */
+    climbInset: 0.9,
+  },
+
   dash: {
     speedMultiplier: 1.9,
     staminaMax: 100,

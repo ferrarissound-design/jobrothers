@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { Character } from "./Character";
-import { CHARACTER_ATTACKS, type AttackDef } from "./attacks";
+import { CHARACTER_ATTACKS, attackFor, type AttackDef } from "./attacks";
 import {
   SPECIAL_BEHAVIOR,
   HYPER_MODE_DURATION,
@@ -62,6 +62,16 @@ export class CharacterController {
     if (!c.alive) return;
 
     this.tickTimers(c, dt);
+
+    // A hanging fighter is out of the normal state machine entirely: no gravity,
+    // no steering, no attacks — only climb up or let go.
+    if (c.state === "ledgeHang") {
+      this.tickLedgeHang(c, intent, dt);
+      this.updateAnimation(c, dt);
+      c.syncMesh();
+      return;
+    }
+
     this.tickDodge(c, dt);
     this.tickAttackPhase(c, dt);
 
@@ -96,6 +106,7 @@ export class CharacterController {
     }
 
     this.applyPhysics(c, dt);
+    this.tryLedgeGrab(c);
     this.updateAnimation(c, dt);
     c.syncMesh();
   }
@@ -109,6 +120,7 @@ export class CharacterController {
     c.attackCooldowns.heavy = Math.max(0, c.attackCooldowns.heavy - dt);
     c.attackCooldowns.special = Math.max(0, c.attackCooldowns.special - dt);
     if (c.dodgeCooldownTimer > 0) c.dodgeCooldownTimer = Math.max(0, c.dodgeCooldownTimer - dt);
+    if (c.ledgeGrabCooldown > 0) c.ledgeGrabCooldown = Math.max(0, c.ledgeGrabCooldown - dt);
 
     if (c.guardRegenDelay > 0) c.guardRegenDelay = Math.max(0, c.guardRegenDelay - dt);
     if (!c.isGuarding && c.guardRegenDelay <= 0 && c.guardDurability < GameConfig.guard.maxDurability) {
@@ -208,6 +220,91 @@ export class CharacterController {
     c.state = c.grounded ? (mag > 0.1 ? "move" : "idle") : "fall";
   }
 
+  // --- ledge ------------------------------------------------------------
+
+  /**
+   * Catches the stage rim on the way down.
+   *
+   * Deliberately unavailable during hitstun: being launched past the edge has
+   * to stay lethal, so the fighter must first act out of the knockback (air
+   * jump or dodge) before the rim will take them. That is the whole recovery
+   * game a spike now threatens.
+   */
+  private tryLedgeGrab(c: Character): void {
+    const cfg = GameConfig.ledge;
+    if (c.grounded || c.velocity.y >= 0) return;
+    if (c.hitstunTimer > 0 || c.ledgeGrabCooldown > 0) return;
+
+    const normal = this.stage.findLedgeGrab(c.position, cfg.grabReach, cfg.grabDepth);
+    if (!normal) return;
+
+    c.ledgeNormal.copy(normal);
+    c.state = "ledgeHang";
+    c.ledgeHangTimer = cfg.maxHangTime;
+    c.velocity.set(0, 0, 0);
+    // Reaching the rim is what buys the recovery back — dropping off again to
+    // go for a different route has to remain an option.
+    c.airJumpsUsed = 0;
+    c.airDodgeUsed = false;
+    c.isDodging = false;
+    c.dodgeInvuln = false;
+    c.isGuarding = false;
+    c.currentAttack = null;
+    c.attackPhase = null;
+    c.attackTimer = 0;
+    c.invulnTimer = Math.max(c.invulnTimer, cfg.invuln);
+    this.snapToLedge(c);
+    // Face the stage, so the climb-up reads as pulling yourself inward.
+    c.facingAngle = Math.atan2(-normal.x, -normal.z);
+    this.effects.spawnHitSpark(c.position.clone().setY(this.stage.ledgeY), 0xbfe6ff, 4);
+  }
+
+  /** Pins the hanging body to the rim it caught. */
+  private snapToLedge(c: Character): void {
+    const cfg = GameConfig.ledge;
+    const radius = this.stage.arenaRadius + cfg.hangOffset;
+    c.position.set(
+      c.ledgeNormal.x * radius,
+      this.stage.ledgeY - cfg.hangDrop,
+      c.ledgeNormal.z * radius
+    );
+  }
+
+  private tickLedgeHang(c: Character, intent: CharacterIntent, dt: number): void {
+    c.velocity.set(0, 0, 0);
+    this.snapToLedge(c);
+    c.ledgeHangTimer -= dt;
+
+    if (intent.wantJump) {
+      this.climbFromLedge(c);
+      return;
+    }
+    // Dodge doubles as "let go" — the one button that already means "get out of
+    // where I am", and the drop is what sets up a second recovery attempt.
+    if (intent.wantDodge || c.ledgeHangTimer <= 0) {
+      this.releaseLedge(c);
+    }
+  }
+
+  private climbFromLedge(c: Character): void {
+    const cfg = GameConfig.ledge;
+    const radius = this.stage.arenaRadius - cfg.climbInset;
+    c.position.set(c.ledgeNormal.x * radius, this.stage.ledgeY, c.ledgeNormal.z * radius);
+    c.velocity.set(0, 0, 0);
+    c.grounded = true;
+    c.state = "idle";
+    c.ledgeHangTimer = 0;
+    c.ledgeGrabCooldown = cfg.regrabCooldown;
+    this.audio.play("jump");
+  }
+
+  private releaseLedge(c: Character): void {
+    c.state = "fall";
+    c.grounded = false;
+    c.ledgeHangTimer = 0;
+    c.ledgeGrabCooldown = GameConfig.ledge.regrabCooldown;
+  }
+
   /** Brakes a grounded fighter who is not steering. Airborne momentum is left alone. */
   private applyGroundFriction(c: Character, dt: number): void {
     if (!c.grounded) return;
@@ -304,7 +401,7 @@ export class CharacterController {
   }
 
   private triggerAttack(c: Character, kind: "light" | "heavy" | "special"): void {
-    const def = CHARACTER_ATTACKS[c.def.id][kind];
+    const def = attackFor(CHARACTER_ATTACKS[c.def.id], kind, c.grounded);
     c.attackCooldowns[kind] = def.cooldown;
 
     if (kind === "special") {
@@ -398,7 +495,14 @@ export class CharacterController {
     c.parts.rightLeg.rotation.x = bob;
     c.parts.leftLeg.rotation.x = -bob;
 
-    if (c.state === "attack" && c.attackPhase && c.currentAttack) {
+    if (c.state === "ledgeHang") {
+      // Both arms straight overhead, legs together: the silhouette has to read
+      // as "hanging" from across the arena, since that is where the camera is.
+      c.parts.rightArm.rotation.x = -2.7;
+      c.parts.leftArm.rotation.x = -2.7;
+      c.parts.rightLeg.rotation.x = 0.1;
+      c.parts.leftLeg.rotation.x = -0.1;
+    } else if (c.state === "attack" && c.attackPhase && c.currentAttack) {
       const startupT = c.attackPhase === "startup" ? 1 - c.attackTimer / Math.max(0.001, c.currentAttack.startup) : 1;
       const swing =
         c.attackPhase === "startup" ? -0.7 * startupT : c.attackPhase === "active" ? 1.4 : 0.5;

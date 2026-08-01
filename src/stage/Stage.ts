@@ -33,6 +33,31 @@ const STAGE_INK = 0.02;
 /** The arena disc reads its line edge-on against the void, so it can take more. */
 const GROUND_INK = 0.05;
 
+/** The arena floor is flat at y=0, so its rim — the grabbable ledge — is too. */
+const LEDGE_Y = 0;
+
+/**
+ * The rim-catch test, as pure geometry so it can be exercised without building
+ * a Stage (whose constructor needs a WebGL scene and a canvas for the grass
+ * texture). `Stage.findLedgeGrab` is a thin wrapper over this.
+ *
+ * @returns the outward unit normal of the rim at the catch point, or null when
+ *          the position is not inside the grab window.
+ */
+export function findLedgeGrabAt(
+  position: THREE.Vector3,
+  arenaRadius: number,
+  ledgeY: number,
+  reach: number,
+  depth: number
+): THREE.Vector3 | null {
+  const dist = Math.hypot(position.x, position.z);
+  if (dist < arenaRadius - 0.2 || dist > arenaRadius + reach) return null;
+  if (position.y > ledgeY || position.y < ledgeY - depth) return null;
+  if (dist < 0.001) return null;
+  return new THREE.Vector3(position.x / dist, 0, position.z / dist);
+}
+
 /** Procedural meadow texture: a green base speckled with grass-blade strokes, tiled across the ground. */
 function createGrassTexture(): THREE.CanvasTexture {
   const size = 256;
@@ -280,6 +305,23 @@ export class Stage {
 
   isOverVoid(x: number, z: number): boolean {
     return this.getGroundHeightAt(x, z, -999) === null;
+  }
+
+  /**
+   * Where a falling fighter would catch the arena rim, or null if they are not
+   * inside the grab window.
+   *
+   * The rim is the only ledge that can be caught: it is the one edge a fighter
+   * dies past. The raised platforms are barely taller than a fighter, so making
+   * their edges grabbable would snag anyone hopping between them.
+   */
+  findLedgeGrab(position: THREE.Vector3, reach: number, depth: number): THREE.Vector3 | null {
+    return findLedgeGrabAt(position, this.arenaRadius, LEDGE_Y, reach, depth);
+  }
+
+  /** Y of the arena rim, i.e. the height a caught ledge sits at. */
+  get ledgeY(): number {
+    return LEDGE_Y;
   }
 
   /**

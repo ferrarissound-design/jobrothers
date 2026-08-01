@@ -115,8 +115,8 @@ export class UIManager {
     const hint = document.createElement("div");
     hint.className = "jb-controls-hint";
     hint.textContent = this.opts.isMobile
-      ? "左:移動スティック / 右:攻撃・強攻撃・必殺技・ジャンプ・ガード・回避"
-      : "WASD:移動 / マウス:視点 / 左クリック:通常攻撃 / 右クリック:強攻撃 / E:必殺技 / Q:ガード / Shift:ダッシュ / Ctrl,C:回避 / Space:ジャンプ / R:カメラリセット / Esc:ポーズ";
+      ? "左:移動スティック / 右:攻撃・強攻撃・必殺技・ジャンプ・ガード・回避 / 空中で強攻撃:急降下スパイク / 崖つかまり中 ジャンプ:よじ登る・回避:手を離す"
+      : "WASD:移動 / マウス:視点 / 左クリック:通常攻撃 / 右クリック:強攻撃（空中で急降下スパイク） / E:必殺技 / Q:ガード / Shift:ダッシュ / Ctrl,C:回避 / Space:ジャンプ / R:カメラリセット / Esc:ポーズ ／ 崖つかまり中は Space でよじ登り・回避で落下";
     hud.appendChild(hint);
 
     // fighter panels

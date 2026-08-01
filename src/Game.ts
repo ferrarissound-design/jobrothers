@@ -469,7 +469,11 @@ export class Game {
   }
 
   private resolveCharacterCollisions(): void {
-    const chars = this.fighters.map((f) => f.character).filter((c) => c.alive);
+    // Fighters on the ledge are anchored to it and must not be shoved off by
+    // someone brushing past — the push would drop them straight into the void.
+    const chars = this.fighters
+      .map((f) => f.character)
+      .filter((c) => c.alive && c.state !== "ledgeHang");
     for (let i = 0; i < chars.length; i++) {
       for (let j = i + 1; j < chars.length; j++) {
         const a = chars[i];
@@ -710,7 +714,9 @@ export class Game {
           1
         )}) vel(${c.velocity.x.toFixed(1)},${c.velocity.y.toFixed(1)},${c.velocity.z.toFixed(1)}) dmg:${c.damagePercent
           .toFixed(0)
-          .padStart(3)}% st:${c.state}${f.cpu ? " tgt:" + (f.cpu.debugTarget ?? "-") : ""}`
+          .padStart(3)}% st:${c.state} atk:${c.currentAttack?.id ?? "-"}${
+          f.cpu ? " tgt:" + (f.cpu.debugTarget ?? "-") : ""
+        }`
       );
     }
     this.ui.setDebugText(lines.join("\n"));

@@ -1,5 +1,6 @@
 import type { CharacterId } from "./characterData";
 import type { SfxName } from "../core/AudioManager";
+import type { VerticalBand } from "../combat/Hitbox";
 
 export type AttackDirection = "horizontal" | "upward" | "forward" | "spike";
 export type AttackEffect = "spark" | "impact" | "electric" | "explosion" | "shockwave";
@@ -32,12 +33,40 @@ export interface AttackDef {
   sound: SfxName;
   /** Extra damage dealt to guard durability when blocked. */
   guardBreakAmount: number;
+  /**
+   * Height window, relative to the attacker's feet, a target must be inside.
+   * Omitted on every ground attack, which stay purely horizontal; spikes use it
+   * so they can only connect on someone at or below the attacker.
+   */
+  verticalBand?: VerticalBand;
 }
 
 export interface CharacterAttackSet {
   light: AttackDef;
   heavy: AttackDef;
   special: AttackDef;
+  /** Replaces `light` while airborne: faster and weaker than the ground jab. */
+  airLight: AttackDef;
+  /** Replaces `heavy` while airborne: the character's spike. */
+  airHeavy: AttackDef;
+}
+
+/** Height window every spike shares: at the attacker's feet or below them. */
+const SPIKE_BAND: VerticalBand = { min: -3.2, max: 0.6 };
+
+/**
+ * Picks the attack a button press resolves to. Airborne fighters get their own
+ * pair, which is what makes the air game read differently from the ground one —
+ * before this both were literally the same move.
+ */
+export function attackFor(
+  set: CharacterAttackSet,
+  kind: "light" | "heavy" | "special",
+  grounded: boolean
+): AttackDef {
+  if (kind === "special") return set.special;
+  if (grounded) return kind === "light" ? set.light : set.heavy;
+  return kind === "light" ? set.airLight : set.airHeavy;
 }
 
 export const CHARACTER_ATTACKS: Record<CharacterId, CharacterAttackSet> = {
@@ -96,6 +125,43 @@ export const CHARACTER_ATTACKS: Record<CharacterId, CharacterAttackSet> = {
       sound: "explosion",
       guardBreakAmount: 26,
     },
+    airLight: {
+      id: "jorio_air_light",
+      name: "空中レンチ払い",
+      damage: 5.5,
+      knockbackBase: 4.5,
+      knockbackScale: 0.28,
+      range: 1.5,
+      angle: Math.PI / 2.2,
+      startup: 0.07,
+      activeTime: 0.1,
+      recovery: 0.16,
+      cooldown: 0,
+      hitStun: 0.24,
+      direction: "horizontal",
+      effect: "spark",
+      sound: "lightAttack",
+      guardBreakAmount: 7,
+    },
+    airHeavy: {
+      id: "jorio_air_spike",
+      name: "レンチ叩き落とし",
+      damage: 15,
+      knockbackBase: 12,
+      knockbackScale: 0.42,
+      range: 1.6,
+      angle: Math.PI / 2.4,
+      startup: 0.22,
+      activeTime: 0.12,
+      recovery: 0.34,
+      cooldown: 0.25,
+      hitStun: 0.45,
+      direction: "spike",
+      effect: "impact",
+      sound: "heavyAttack",
+      guardBreakAmount: 18,
+      verticalBand: SPIKE_BAND,
+    },
   },
   birinezu: {
     light: {
@@ -151,6 +217,43 @@ export const CHARACTER_ATTACKS: Record<CharacterId, CharacterAttackSet> = {
       effect: "electric",
       sound: "electric",
       guardBreakAmount: 16,
+    },
+    airLight: {
+      id: "birinezu_air_light",
+      name: "空中しっぽ払い",
+      damage: 4,
+      knockbackBase: 3.4,
+      knockbackScale: 0.24,
+      range: 1.3,
+      angle: Math.PI / 2,
+      startup: 0.05,
+      activeTime: 0.09,
+      recovery: 0.11,
+      cooldown: 0,
+      hitStun: 0.2,
+      direction: "horizontal",
+      effect: "spark",
+      sound: "lightAttack",
+      guardBreakAmount: 5,
+    },
+    airHeavy: {
+      id: "birinezu_air_spike",
+      name: "電撃ドロップ",
+      damage: 11,
+      knockbackBase: 9.5,
+      knockbackScale: 0.34,
+      range: 1.3,
+      angle: Math.PI / 2.6,
+      startup: 0.18,
+      activeTime: 0.12,
+      recovery: 0.3,
+      cooldown: 0.25,
+      hitStun: 0.4,
+      direction: "spike",
+      effect: "electric",
+      sound: "electric",
+      guardBreakAmount: 13,
+      verticalBand: SPIKE_BAND,
     },
   },
   hayasugi: {
@@ -208,6 +311,43 @@ export const CHARACTER_ATTACKS: Record<CharacterId, CharacterAttackSet> = {
       sound: "electric",
       guardBreakAmount: 0,
     },
+    airLight: {
+      id: "hayasugi_air_light",
+      name: "空中回し蹴り",
+      damage: 4.5,
+      knockbackBase: 3.8,
+      knockbackScale: 0.26,
+      range: 1.4,
+      angle: Math.PI / 2.2,
+      startup: 0.06,
+      activeTime: 0.09,
+      recovery: 0.13,
+      cooldown: 0,
+      hitStun: 0.22,
+      direction: "horizontal",
+      effect: "spark",
+      sound: "lightAttack",
+      guardBreakAmount: 6,
+    },
+    airHeavy: {
+      id: "hayasugi_air_spike",
+      name: "急降下キック",
+      damage: 13,
+      knockbackBase: 10.5,
+      knockbackScale: 0.38,
+      range: 1.5,
+      angle: Math.PI / 3,
+      startup: 0.19,
+      activeTime: 0.14,
+      recovery: 0.32,
+      cooldown: 0.25,
+      hitStun: 0.42,
+      direction: "spike",
+      effect: "impact",
+      sound: "heavyAttack",
+      guardBreakAmount: 15,
+      verticalBand: SPIKE_BAND,
+    },
   },
   danboru: {
     light: {
@@ -263,6 +403,43 @@ export const CHARACTER_ATTACKS: Record<CharacterId, CharacterAttackSet> = {
       effect: "explosion",
       sound: "explosion",
       guardBreakAmount: 24,
+    },
+    airLight: {
+      id: "danboru_air_light",
+      name: "空中スコップ払い",
+      damage: 6,
+      knockbackBase: 5,
+      knockbackScale: 0.3,
+      range: 1.6,
+      angle: Math.PI / 2.4,
+      startup: 0.1,
+      activeTime: 0.11,
+      recovery: 0.2,
+      cooldown: 0,
+      hitStun: 0.26,
+      direction: "horizontal",
+      effect: "impact",
+      sound: "lightAttack",
+      guardBreakAmount: 8,
+    },
+    airHeavy: {
+      id: "danboru_air_spike",
+      name: "段ボールプレス",
+      damage: 17,
+      knockbackBase: 13.5,
+      knockbackScale: 0.45,
+      range: 1.7,
+      angle: Math.PI / 2.2,
+      startup: 0.28,
+      activeTime: 0.14,
+      recovery: 0.4,
+      cooldown: 0.3,
+      hitStun: 0.5,
+      direction: "spike",
+      effect: "shockwave",
+      sound: "heavyAttack",
+      guardBreakAmount: 22,
+      verticalBand: SPIKE_BAND,
     },
   },
 };
