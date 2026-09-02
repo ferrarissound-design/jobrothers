@@ -24,6 +24,9 @@ jobs:
       - name: Upgrade patched build/test tooling
         run: npm install --save-dev vite@^6.4.3 vitest@^4.1.11
 
+      - name: Apply non-breaking audit fixes
+        run: npm audit fix
+
       - name: Verify dependency audit
         run: npm audit --audit-level=moderate
 
