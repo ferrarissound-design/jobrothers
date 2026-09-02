@@ -1,0 +1,39 @@
+name: One-shot dependency refresh
+
+on:
+  push:
+    branches: [chatgpt/v1-polish-20260902]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: contains(github.event.head_commit.message, '[refresh-deps]')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/v1-polish-20260902
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Upgrade patched build/test tooling
+        run: npm install --save-dev vite@^6.4.3 vitest@^4.1.11
+
+      - name: Verify dependency audit
+        run: npm audit --audit-level=moderate
+
+      - name: Commit refreshed lockfile
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Upgrade Vite and Vitest security patches"
+          git push origin HEAD:chatgpt/v1-polish-20260902
