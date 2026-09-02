@@ -38,6 +38,24 @@ export class InputManager {
     // (alt-tab, a switch to another app), which used to leave the fighter
     // running or guarding until that key was pressed and released again.
     window.addEventListener("blur", () => this.clearTransient());
+
+    // Combat button presses are intentionally buffered until the fixed-step
+    // simulation consumes them. That is great at 120 Hz, but it also meant a
+    // jump/special pressed on a pause or result screen could sit in the buffer
+    // and fire immediately after clicking Resume/Restart. All full-screen menu
+    // actions use native form controls, while the mobile combat pad uses divs,
+    // so clearing on menu-control pointerdown fixes the leak without breaking
+    // simultaneous touch movement + attacks.
+    document.addEventListener(
+      "pointerdown",
+      (e) => {
+        const target = e.target;
+        if (target instanceof Element && target.closest("button, select, input")) {
+          this.clearTransient();
+        }
+      },
+      true
+    );
   }
 
   private bindKeyboard(): void {
@@ -68,6 +86,16 @@ export class InputManager {
   }
 
   private handleDown(code: string): void {
+    // Escape owns the transition both into and out of the pause menu. Drop any
+    // gameplay inputs accumulated on the menu before queueing the pause pulse,
+    // but keep Escape itself in keysDown so OS key-repeat cannot toggle pause
+    // on/off several times while the key is held.
+    if (code === KeyBindings.pause) {
+      this.clearTransientExcept(code);
+      this.justPressed.add("pause");
+      return;
+    }
+
     this.updateMoveAxesFromKeys();
     if (code === KeyBindings.jump) {
       this.jumpHeld = true;
@@ -78,7 +106,6 @@ export class InputManager {
     if (code === KeyBindings.special) this.justPressed.add("special");
     if (code === KeyBindings.dodgeA || code === KeyBindings.dodgeB) this.justPressed.add("dodge");
     if (code === KeyBindings.cameraReset) this.justPressed.add("cameraReset");
-    if (code === KeyBindings.pause) this.justPressed.add("pause");
     if (code === KeyBindings.debugToggle) this.justPressed.add("debugToggle");
   }
 
@@ -156,8 +183,12 @@ export class InputManager {
    * confirm, WASD to move the cursor) do not leak into the first frame of play.
    */
   clearTransient(): void {
+    this.clearTransientExcept();
+  }
+
+  private clearTransientExcept(preserveCode?: string): void {
     this.justPressed.clear();
-    this.keysDown.clear();
+    this.keysDown = preserveCode && this.keysDown.has(preserveCode) ? new Set([preserveCode]) : new Set();
     this.moveX = 0;
     this.moveY = 0;
     this.lookDX = 0;
