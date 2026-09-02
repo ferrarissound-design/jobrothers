@@ -1,8 +1,10 @@
 import * as THREE from "three";
 import type { Character } from "../characters/Character";
 import type { CharacterIntent } from "../characters/CharacterController";
+import { CHARACTER_ATTACKS } from "../characters/attacks";
 import type { Stage } from "../stage/Stage";
 import { AI_PERSONALITIES, type AIPersonality, type AIPersonalityConfig } from "./AIState";
+import { chooseAerialAttack } from "./aerialCombat";
 import type { ItemTarget } from "../items/ItemManager";
 import { GameConfig, type AIDifficulty } from "../config/gameConfig";
 import { dampAngle, clamp, randRange } from "../utils/math";
@@ -14,6 +16,9 @@ const ITEM_INTEREST_RADIUS: Record<AIDifficulty, number> = {
   normal: 10,
   hard: 17,
 };
+
+const GUARD_HOLD_MIN = 0.16;
+const GUARD_HOLD_MAX = 0.34;
 
 /** Signed angle, in radians, between where `self` is facing and where `target` is. */
 function angleDelta(self: Character, target: Character): number {
@@ -53,6 +58,8 @@ export class CPUController {
   private targetId: string | null = null;
   private reactingToKey: string | null = null;
   private reactionTimer = 0;
+  /** Guard is a held input. Once chosen, keep it down long enough to cover an active hitbox. */
+  private guardHoldTimer = 0;
   /** Pickup this fighter is currently walking towards, if any. */
   private itemGoal: ItemTarget | null = null;
 
@@ -72,6 +79,7 @@ export class CPUController {
     this.targetId = null;
     this.reactingToKey = null;
     this.reactionTimer = 0;
+    this.guardHoldTimer = 0;
     this.decisionTimer = 0;
     this.itemGoal = null;
   }
@@ -195,6 +203,33 @@ export class CPUController {
       }
     }
 
+    // Air attacks used to exist only for the human player in practice because
+    // CPU attack rolls were gated behind self.grounded. That made the newly
+    // added air-light/spike pair invisible on three quarters of the roster.
+    // Choose from the real aerial hitbox ranges and only spike downward targets.
+    if (!self.grounded && self.hitstunTimer <= 0 && !mistake) {
+      const attacks = CHARACTER_ATTACKS[self.def.id];
+      const choice = chooseAerialAttack({
+        selfY: self.position.y,
+        targetY: target.position.y,
+        horizontalDistance: dist,
+        lightRange: attacks.airLight.range,
+        heavyRange: attacks.airHeavy.range,
+        lightReady: self.attackCooldowns.light <= 0,
+        heavyReady: self.attackCooldowns.heavy <= 0,
+        roll: Math.random(),
+        spikeChance: 0.25 + cfg.aggression * 0.5,
+      });
+      if (choice === "heavy") {
+        this.intent.wantHeavy = true;
+        return;
+      }
+      if (choice === "light") {
+        this.intent.wantLight = true;
+        return;
+      }
+    }
+
     const inRange = dist <= cfg.preferredRange * 1.15;
     const wantsToBeCareful = self.damagePercent > cfg.cautiousDamageThreshold && !mistake;
 
@@ -243,13 +278,25 @@ export class CPUController {
   // --- reactive defense (every frame) ---------------------------------
 
   private reactToThreats(dt: number, self: Character, alive: Character[], cfg: AIPersonalityConfig): void {
-    this.intent.wantGuard = false;
     this.intent.wantDodge = false;
 
     if (self.hitstunTimer > 0 || self.state === "attack" || self.isDodging) {
       this.reactingToKey = null;
+      this.guardHoldTimer = 0;
+      this.intent.wantGuard = false;
       return;
     }
+
+    // Guard is semantically a held button. The old AI rolled a fresh defense
+    // every frame, so a successful guard decision often lasted one 60 Hz tick
+    // and released before the opponent's active frames arrived. Commit to it
+    // briefly once chosen instead of flickering the shield on and off.
+    if (this.guardHoldTimer > 0) {
+      this.guardHoldTimer = Math.max(0, this.guardHoldTimer - dt);
+      this.intent.wantGuard = true;
+      return;
+    }
+    this.intent.wantGuard = false;
 
     let threat: Character | null = null;
     for (const c of alive) {
@@ -279,6 +326,7 @@ export class CPUController {
     if (roll < cfg.dodgeChance) {
       this.intent.wantDodge = true;
     } else if (roll < cfg.dodgeChance + cfg.guardChance && self.grounded) {
+      this.guardHoldTimer = randRange(GUARD_HOLD_MIN, GUARD_HOLD_MAX);
       this.intent.wantGuard = true;
     }
   }
